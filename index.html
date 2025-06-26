@@ -2596,18 +2596,88 @@
         report.push("<div class='alert alert-info'>No species recorded.</div>");
       }
       
-      // Monitoring
-      report.push("<h4 class='mt-4'>Monitoring Logs</h4>");
-      if (ecoData.monitoring.length) {
-        // Monitoring frequency
-        const monitoringByMonth = {};
-        ecoData.monitoring.forEach(m => {
-          const month = m.date.substring(0, 7); // YYYY-MM
-          monitoringByMonth[month] = (monitoringByMonth[month] || 0) + 1;
-        });
-        
-        report.push("<h5 class='mt-3'>Monitoring Frequency</h5>");
-        report.push("<div class='row
+ // Monitoring
+report.push("<h4 class='mt-4'>Monitoring Logs</h4>");
+if (ecoData.monitoring.length) {
+  // Monitoring frequency
+  const monitoringByMonth = {};
+  ecoData.monitoring.forEach(m => {
+    const month = m.date.substring(0, 7); // YYYY-MM
+    monitoringByMonth[month] = (monitoringByMonth[month] || 0) + 1;
+  });
+  
+  report.push("<h5 class='mt-3'>Monitoring Frequency</h5>");
+  report.push("<div class='row'>");
+  
+  // Chart visualization
+  report.push(`
+    <div class="col-md-6 mb-4">
+      <div class="card h-100">
+        <div class="card-body">
+          <canvas id="monitoringChart"></canvas>
+        </div>
+      </div>
+    </div>
+  `);
+  
+  // Monthly counts
+  report.push(`
+    <div class="col-md-6 mb-4">
+      <div class="card h-100">
+        <div class="card-body">
+          <table class="table table-sm">
+            <thead>
+              <tr>
+                <th>Month</th>
+                <th>Count</th>
+              </tr>
+            </thead>
+            <tbody>
+  `);
+  
+  // Sort months chronologically
+  const sortedMonths = Object.keys(monitoringByMonth).sort();
+  sortedMonths.forEach(month => {
+    report.push(`
+      <tr>
+        <td>${month}</td>
+        <td>${monitoringByMonth[month]}</td>
+      </tr>
+    `);
+  });
+  
+  report.push(`
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `);
+  
+  report.push("</div>"); // Close row
+  
+  // Detailed monitoring log
+  report.push("<h5 class='mt-3'>Monitoring Details</h5>");
+  report.push("<div class='table-responsive'><table class='table table-sm'><thead><tr><th>Date</th><th>Observer</th><th>Type</th><th>Notes</th></tr></thead><tbody>");
+  
+  // Sort by date (newest first)
+  const sortedMonitoring = [...ecoData.monitoring].sort((a, b) => new Date(b.date) - new Date(a.date));
+  
+  sortedMonitoring.forEach(m => {
+    report.push(`
+      <tr>
+        <td>${m.date}</td>
+        <td>${m.observer}</td>
+        <td><span class="badge ${getMonitoringTypeBadgeClass(m.type)}">${m.type}</span></td>
+        <td>${m.notes || '-'}</td>
+      </tr>
+    `);
+  });
+  
+  report.push("</tbody></table></div>");
+} else {
+  report.push("<div class='alert alert-info'>No monitoring data recorded.</div>");
+}
 
 
 
@@ -2745,447 +2815,618 @@
   <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<!-- Main Script -->
+<script>
+  // Initialize data structure with sample data for demonstration
+  let ecoData = {
+    settings: {
+      user: {},
+      site: {},
+      darkMode: false
+    },
+    assessments: [],
+    maintenance: [],
+    species: [],
+    monitoring: [],
+    mapMarkers: []
+  };
 
-  <!-- Main Script -->
-  <script>
-    // Initialize data structure with default values
-    let ecoData = {
-      settings: {
-        user: {
-          name: "",
-          role: "",
-          darkMode: false
-        },
-        site: {
-          name: "",
-          location: "",
-          description: ""
-        }
-      },
-      assessments: [],
-      maintenance: [],
-      species: [],
-      monitoring: [],
-      mapMarkers: []
-    };
+  // Pagination variables
+  const paginationConfig = {
+    assessments: { currentPage: 1, itemsPerPage: 5, filteredData: [] },
+    maintenance: { currentPage: 1, itemsPerPage: 5, filteredData: [] },
+    species: { currentPage: 1, itemsPerPage: 5, filteredData: [] },
+    monitoring: { currentPage: 1, itemsPerPage: 5, filteredData: [] }
+  };
 
-    // Pagination variables
-    const paginationConfig = {
-      assessments: { currentPage: 1, pageSize: 5 },
-      maintenance: { currentPage: 1, pageSize: 5 },
-      species: { currentPage: 1, pageSize: 5 },
-      monitoring: { currentPage: 1, pageSize: 5 }
-    };
-
-    // Current filter states
-    const filterStates = {
-      maintenance: "all",
-      species: "all"
-    };
-
-    // Current search terms
-    const searchTerms = {
-      assessments: "",
-      monitoring: ""
-    };
-
-    // Load data from localStorage
-    function loadData() {
-      const saved = localStorage.getItem("ecoMaintainData");
-      if (saved) {
-        try { 
-          ecoData = JSON.parse(saved); 
-          updateDashboardCounts();
-          renderRecentActivity();
-          renderUpcomingTasks();
-          
-          // Apply dark mode if enabled
-          if (ecoData.settings.user.darkMode) {
-            document.body.classList.add("dark-mode");
-            document.getElementById("darkMode").checked = true;
-          }
-        }
-        catch (e) { 
-          console.error("Error loading data", e); 
-          showToast("Error loading saved data. Starting with fresh data.", "error");
-        }
-      }
-      
-      // Load saved settings into forms
-      if (ecoData.settings.site) {
-        document.getElementById("siteName").value = ecoData.settings.site.name || '';
-        document.getElementById("siteLocation").value = ecoData.settings.site.location || '';
-        document.getElementById("siteDescription").value = ecoData.settings.site.description || '';
-      }
-      
-      if (ecoData.settings.user) {
-        document.getElementById("userName").value = ecoData.settings.user.name || '';
-        document.getElementById("userRole").value = ecoData.settings.user.role || '';
-      }
-    }
-
-    // Save data to localStorage
-    function saveData() {
-      try {
-        localStorage.setItem("ecoMaintainData", JSON.stringify(ecoData));
+  // Load data from localStorage
+  function loadData() {
+    const saved = localStorage.getItem("ecoMaintainData");
+    if (saved) {
+      try { 
+        ecoData = JSON.parse(saved); 
         updateDashboardCounts();
-        renderRecentActivity();
-        renderUpcomingTasks();
-        showToast("Data saved successfully", "success");
-      } catch (e) {
-        console.error("Error saving", e);
-        showToast("Error saving data", "error");
+        showToast('Data loaded successfully', 'success');
+      }
+      catch (e) { 
+        console.error("Error loading data", e); 
+        showToast('Error loading saved data. Starting with fresh data.', 'danger');
       }
     }
-
-    // Clear all data
-    function clearData() {
-      if (confirm("This will permanently delete ALL your data. Are you sure?")) {
-        localStorage.removeItem("ecoMaintainData");
-        localStorage.removeItem("dashboardMapShapes");
-        ecoData = {
-          settings: { 
-            user: { name: "", role: "", darkMode: false },
-            site: { name: "", location: "", description: "" }
-          },
-          assessments: [],
-          maintenance: [],
-          species: [],
-          monitoring: [],
-          mapMarkers: []
-        };
-        
-        // Reset forms
-        document.getElementById("siteName").value = '';
-        document.getElementById("siteLocation").value = '';
-        document.getElementById("siteDescription").value = '';
-        document.getElementById("userName").value = '';
-        document.getElementById("userRole").value = '';
-        document.getElementById("darkMode").checked = false;
-        document.body.classList.remove("dark-mode");
-        
-        saveData();
-        location.reload();
-      }
+    
+    // Initialize filtered data for pagination
+    paginationConfig.assessments.filteredData = [...ecoData.assessments];
+    paginationConfig.maintenance.filteredData = [...ecoData.maintenance];
+    paginationConfig.species.filteredData = [...ecoData.species];
+    paginationConfig.monitoring.filteredData = [...ecoData.monitoring];
+    
+    // Apply dark mode if enabled
+    if (ecoData.settings.darkMode) {
+      document.body.classList.add('dark-mode');
+      document.getElementById('darkMode').checked = true;
     }
+  }
 
-    // Import data from file
-    function importData() {
-      document.getElementById("dataImport").click();
+  // Save data to localStorage
+  function saveData() {
+    try {
+      localStorage.setItem("ecoMaintainData", JSON.stringify(ecoData));
+      updateDashboardCounts();
+      showToast('Data saved successfully', 'success');
+    } catch (e) {
+      console.error("Error saving", e);
+      showToast('Error saving data. Check console for details.', 'danger');
     }
+  }
 
-    function handleFileImport(input) {
-      const file = input.files[0];
-      if (!file) return;
+  // Clear all data
+  function clearData() {
+    if (confirm("This will permanently delete ALL your data. Are you sure?")) {
+      localStorage.removeItem("ecoMaintainData");
+      localStorage.removeItem("dashboardMapShapes");
+      ecoData = {
+        settings: { user: {}, site: {}, darkMode: document.body.classList.contains('dark-mode') },
+        assessments: [],
+        maintenance: [],
+        species: [],
+        monitoring: [],
+        mapMarkers: []
+      };
+      saveData();
+      location.reload();
+    }
+  }
 
+  // Import data from file
+  function importData() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    
+    input.onchange = e => {
+      const file = e.target.files[0];
       const reader = new FileReader();
-      reader.onload = function(e) {
+      
+      reader.onload = event => {
         try {
-          const importedData = JSON.parse(e.target.result);
-          if (confirm("This will replace all current data. Continue?")) {
+          const importedData = JSON.parse(event.target.result);
+          if (confirm("This will overwrite your current data. Continue?")) {
             ecoData = importedData;
             saveData();
             location.reload();
           }
-        } catch (e) {
-          console.error("Error importing data", e);
-          showToast("Invalid data file", "error");
+        } catch (err) {
+          console.error("Error importing data", err);
+          showToast('Invalid data file. Please check the format.', 'danger');
         }
-        input.value = ''; // Reset file input
       };
+      
       reader.readAsText(file);
-    }
+    };
+    
+    input.click();
+  }
 
-    // Update dashboard counters
-    function updateDashboardCounts() {
-      document.getElementById("assessmentCount").textContent = ecoData.assessments.length;
-      
-      const completedTasks = ecoData.maintenance.filter(t => t.done).length;
-      document.getElementById("completedTasks").textContent = completedTasks;
-      document.getElementById("pendingTasks").textContent = ecoData.maintenance.length - completedTasks;
-      
-      document.getElementById("speciesCount").textContent = ecoData.species.length;
-      document.getElementById("nativeSpecies").textContent = ecoData.species.filter(s => s.type === "Native").length;
-      
-      document.getElementById("monitoringCount").textContent = ecoData.monitoring.length;
-      
-      // Last assessment date
-      if (ecoData.assessments.length > 0) {
-        const lastAssessment = [...ecoData.assessments].sort((a, b) => new Date(b.date) - new Date(a.date))[0];
-        document.getElementById("lastAssessmentDate").textContent = lastAssessment.date;
-      } else {
-        document.getElementById("lastAssessmentDate").textContent = "Never";
-      }
-      
-      // Last monitoring date
-      if (ecoData.monitoring.length > 0) {
-        const lastMonitoring = [...ecoData.monitoring].sort((a, b) => new Date(b.date) - new Date(a.date))[0];
-        document.getElementById("lastMonitoringDate").textContent = lastMonitoring.date;
-      } else {
-        document.getElementById("lastMonitoringDate").textContent = "Never";
-      }
+  // Update dashboard counters with additional stats
+  function updateDashboardCounts() {
+    document.getElementById("assessmentCount").textContent = ecoData.assessments.length;
+    document.getElementById("completedTasks").textContent = ecoData.maintenance.filter(t => t.done).length;
+    document.getElementById("pendingTasks").textContent = ecoData.maintenance.filter(t => !t.done).length;
+    document.getElementById("speciesCount").textContent = ecoData.species.length;
+    document.getElementById("monitoringCount").textContent = ecoData.monitoring.length;
+    
+    // Native species count
+    const nativeCount = ecoData.species.filter(s => s.type === 'Native').length;
+    document.getElementById("nativeSpecies").textContent = nativeCount;
+    
+    // Last assessment date
+    if (ecoData.assessments.length > 0) {
+      const lastAssessment = [...ecoData.assessments].sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+      document.getElementById("lastAssessmentDate").textContent = lastAssessment.date;
+    } else {
+      document.getElementById("lastAssessmentDate").textContent = 'Never';
     }
-
-    // Render recent activity for dashboard
-    function renderRecentActivity() {
-      const container = document.getElementById("recentActivity");
-      container.innerHTML = "";
-      
-      // Combine all activities with timestamps
-      const activities = [];
-      
-      ecoData.assessments.slice(0, 3).forEach(a => {
-        activities.push({
-          type: "assessment",
-          date: a.date,
-          title: `Assessment by ${a.assessor}`,
-          content: `Health: ${a.health}`,
-          icon: "bi-clipboard-data"
-        });
-      });
-      
-      ecoData.monitoring.slice(0, 3).forEach(m => {
-        activities.push({
-          type: "monitoring",
-          date: m.date,
-          title: `Monitoring by ${m.observer}`,
-          content: m.notes.substring(0, 50) + (m.notes.length > 50 ? "..." : ""),
-          icon: "bi-binoculars"
-        });
-      });
-      
-      ecoData.maintenance
-        .filter(t => t.done)
-        .slice(0, 3)
-        .forEach(t => {
-          activities.push({
-            type: "maintenance",
-            date: t.due,
-            title: `Task completed: ${t.name}`,
-            content: t.category,
-            icon: "bi-check-circle"
-          });
-        });
-      
-      // Sort by date (newest first)
-      activities.sort((a, b) => new Date(b.date) - new Date(a.date));
-      
-      if (activities.length === 0) {
-        container.innerHTML = `
-          <div class="list-group-item text-center text-muted py-4">
-            No recent activity
-          </div>
-        `;
-        return;
-      }
-      
-      activities.slice(0, 5).forEach(activity => {
-        const item = document.createElement("div");
-        item.className = "list-group-item list-group-item-action";
-        item.innerHTML = `
-          <div class="d-flex w-100 justify-content-between">
-            <h6 class="mb-1"><i class="bi ${activity.icon} me-2"></i>${activity.title}</h6>
-            <small class="text-muted">${activity.date}</small>
-          </div>
-          <p class="mb-1">${activity.content}</p>
-        `;
-        container.appendChild(item);
-      });
+    
+    // Last monitoring date
+    if (ecoData.monitoring.length > 0) {
+      const lastMonitoring = [...ecoData.monitoring].sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+      document.getElementById("lastMonitoringDate").textContent = lastMonitoring.date;
+    } else {
+      document.getElementById("lastMonitoringDate").textContent = 'Never';
     }
+    
+    // Update recent activity
+    updateRecentActivity();
+    
+    // Update upcoming tasks
+    updateUpcomingTasks();
+  }
 
-    // Render upcoming tasks for dashboard
-    function renderUpcomingTasks() {
-      const container = document.getElementById("upcomingTasks");
-      container.innerHTML = "";
-      
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      
-      const upcomingTasks = ecoData.maintenance
-        .filter(t => !t.done && new Date(t.due) >= today)
-        .sort((a, b) => new Date(a.due) - new Date(b.due))
-        .slice(0, 5);
-      
-      if (upcomingTasks.length === 0) {
-        container.innerHTML = `
-          <div class="list-group-item text-center text-muted py-4">
-            No upcoming tasks
-          </div>
-        `;
-        return;
-      }
-      
-      upcomingTasks.forEach(task => {
+  // Update recent activity list
+  function updateRecentActivity() {
+    const container = document.getElementById("recentActivity");
+    container.innerHTML = "";
+    
+    // Combine different types of activities with timestamps
+    const activities = [];
+    
+    ecoData.assessments.forEach(a => {
+      activities.push({
+        type: 'assessment',
+        date: a.date,
+        title: `Assessment by ${a.assessor}`,
+        content: `Health: ${a.health}`,
+        icon: 'bi-clipboard-data'
+      });
+    });
+    
+    ecoData.maintenance.forEach(t => {
+      activities.push({
+        type: 'task',
+        date: t.due,
+        title: `Task: ${t.name}`,
+        content: `Status: ${t.done ? 'Completed' : 'Pending'}`,
+        icon: t.done ? 'bi-check-circle' : 'bi-exclamation-circle'
+      });
+    });
+    
+    ecoData.monitoring.forEach(m => {
+      activities.push({
+        type: 'monitoring',
+        date: m.date,
+        title: `Monitoring by ${m.observer}`,
+        content: `Location: ${m.area || 'Unknown'}`,
+        icon: 'bi-binoculars'
+      });
+    });
+    
+    // Sort by date (newest first)
+    activities.sort((a, b) => new Date(b.date) - new Date(a.date));
+    
+    // Show only the 5 most recent
+    const recentActivities = activities.slice(0, 5);
+    
+    if (recentActivities.length === 0) {
+      container.innerHTML = `
+        <div class="list-group-item text-center text-muted py-4">
+          No recent activity
+        </div>
+      `;
+      return;
+    }
+    
+    recentActivities.forEach(activity => {
+      const item = document.createElement('a');
+      item.className = 'list-group-item list-group-item-action';
+      item.innerHTML = `
+        <div class="d-flex w-100 justify-content-between">
+          <h6 class="mb-1"><i class="bi ${activity.icon} me-2"></i>${activity.title}</h6>
+          <small class="text-muted">${activity.date}</small>
+        </div>
+        <p class="mb-1">${activity.content}</p>
+      `;
+      container.appendChild(item);
+    });
+  }
+
+  // Update upcoming tasks list
+  function updateUpcomingTasks() {
+    const container = document.getElementById("upcomingTasks");
+    container.innerHTML = "";
+    
+    // Get upcoming tasks (not completed and due in the next 14 days)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const futureDate = new Date();
+    futureDate.setDate(today.getDate() + 14);
+    
+    const upcomingTasks = ecoData.maintenance
+      .filter(task => !task.done)
+      .filter(task => {
         const dueDate = new Date(task.due);
-        const daysDiff = Math.ceil((dueDate - today) / (1000 * 60 * 60 * 24));
-        
-        let badgeClass = "bg-secondary";
-        if (daysDiff <= 1) badgeClass = "bg-danger";
-        else if (daysDiff <= 3) badgeClass = "bg-warning";
-        else if (daysDiff <= 7) badgeClass = "bg-primary";
-        
-        const item = document.createElement("div");
-        item.className = "list-group-item list-group-item-action";
-        item.innerHTML = `
-          <div class="d-flex w-100 justify-content-between">
-            <h6 class="mb-1">${task.name}</h6>
-            <span class="badge ${badgeClass}">Due in ${daysDiff} day${daysDiff !== 1 ? 's' : ''}</span>
-          </div>
-          <p class="mb-1"><small class="text-muted">${task.category} • Due ${dueDate.toLocaleDateString()}</small></p>
-        `;
-        container.appendChild(item);
-      });
-    }
-
-    // Initialize the dashboard map
-    function initDashboardMap() {
-      const map = L.map("dashboardMap").setView([-42.8821, 147.3272], 13);
-
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        maxZoom: 19,
-        attribution: '&copy; OpenStreetMap contributors'
-      }).addTo(map);
-
-      // Geocoder
-      L.Control.geocoder({
-        defaultMarkGeocode: false,
-        placeholder: "Search for location...",
-        errorMessage: "Location not found."
+        return dueDate >= today && dueDate <= futureDate;
       })
-        .on("markgeocode", function (e) {
-          const bbox = e.geocode.bbox;
-          const poly = L.polygon([
-            bbox.getSouthEast(),
-            bbox.getNorthEast(),
-            bbox.getNorthWest(),
-            bbox.getSouthWest()
-          ]).addTo(map);
-          map.fitBounds(poly.getBounds());
-        })
-        .addTo(map);
+      .sort((a, b) => new Date(a.due) - new Date(b.due));
+    
+    if (upcomingTasks.length === 0) {
+      container.innerHTML = `
+        <div class="list-group-item text-center text-muted py-4">
+          No upcoming tasks
+        </div>
+      `;
+      return;
+    }
+    
+    upcomingTasks.slice(0, 5).forEach(task => {
+      const dueDate = new Date(task.due);
+      const daysDiff = Math.floor((dueDate - today) / (1000 * 60 * 60 * 24));
+      
+      let badgeClass = 'bg-secondary';
+      let dueText = '';
+      
+      if (daysDiff === 0) {
+        badgeClass = 'bg-warning';
+        dueText = 'Today';
+      } else if (daysDiff < 0) {
+        badgeClass = 'bg-danger';
+        dueText = `${Math.abs(daysDiff)} day(s) overdue`;
+      } else {
+        badgeClass = 'bg-info';
+        dueText = `In ${daysDiff} day(s)`;
+      }
+      
+      const item = document.createElement('a');
+      item.className = 'list-group-item list-group-item-action';
+      item.innerHTML = `
+        <div class="d-flex w-100 justify-content-between">
+          <h6 class="mb-1">${task.name}</h6>
+          <span class="badge ${badgeClass}">${dueText}</span>
+        </div>
+        <p class="mb-1"><small class="text-muted">${task.category} • Due ${dueDate.toLocaleDateString()}</small></p>
+      `;
+      container.appendChild(item);
+    });
+  }
 
-      // Drawing feature layer
-      const drawnItems = new L.FeatureGroup();
-      map.addLayer(drawnItems);
+  // Initialize the dashboard map with more features
+  function initDashboardMap() {
+    const map = L.map("dashboardMap").setView([-42.8821, 147.3272], 13);
 
-      // Initialize draw control
-      const drawControl = new L.Control.Draw({
-        edit: {
-          featureGroup: drawnItems,
-          remove: true
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map);
+
+    // Add different base maps
+    const baseLayers = {
+      "OpenStreetMap": L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      }),
+      "Satellite": L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+        attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+      }),
+      "Topographic": L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", {
+        maxZoom: 17,
+        attribution: 'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, <a href="http://viewfinderpanoramas.org">SRTM</a> | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC-BY-SA</a>)'
+      })
+    };
+
+    baseLayers.OpenStreetMap.addTo(map);
+
+    // Geocoder with more options
+    const geocoder = L.Control.geocoder({
+      defaultMarkGeocode: false,
+      placeholder: "Search for location...",
+      errorMessage: "Location not found.",
+      geocoder: new L.Control.Geocoder.Nominatim({
+        geocodingQueryParams: {
+          countrycodes: 'au', // Focus on Australia
+          limit: 5
+        }
+      })
+    })
+    .on("markgeocode", function (e) {
+      const bbox = e.geocode.bbox;
+      const poly = L.polygon([
+        bbox.getSouthEast(),
+        bbox.getNorthEast(),
+        bbox.getNorthWest(),
+        bbox.getSouthWest()
+      ]).addTo(map);
+      map.fitBounds(poly.getBounds());
+      
+      // Add a marker with the location name
+      L.marker(e.geocode.center).addTo(map)
+        .bindPopup(`<strong>${e.geocode.name}</strong>`)
+        .openPopup();
+    })
+    .addTo(map);
+
+    // Drawing feature layer
+    const drawnItems = new L.FeatureGroup();
+    map.addLayer(drawnItems);
+
+    // Initialize draw control with more options
+    const drawControl = new L.Control.Draw({
+      edit: {
+        featureGroup: drawnItems,
+        remove: true,
+        edit: false
+      },
+      draw: {
+        polygon: {
+          allowIntersection: false,
+          drawError: {
+            color: '#b00b00',
+            message: '<strong>Error:</strong> polygon edges cannot cross!'
+          },
+          shapeOptions: {
+            color: '#3388ff',
+            fillOpacity: 0.2
+          },
+          showArea: true,
+          metric: true
         },
-        draw: {
-          polygon: {
-            allowIntersection: false,
-            drawError: {
-              color: '#b00b00',
-              message: '<strong>Error:</strong> polygon edges cannot cross!'
-            },
-            shapeOptions: {
-              color: '#3388ff'
-            }
-          },
-          polyline: false,
-          rectangle: {
-            shapeOptions: {
-              color: '#3388ff'
-            }
-          },
-          circle: false,
-          circlemarker: false,
-          marker: {
-            icon: L.icon({
-              iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-              shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-              iconSize: [25, 41],
-              iconAnchor: [12, 41],
-              popupAnchor: [1, -34],
-              shadowSize: [41, 41]
-            })
+        polyline: false,
+        rectangle: {
+          shapeOptions: {
+            color: '#3388ff',
+            fillOpacity: 0.2
           }
+        },
+        circle: {
+          shapeOptions: {
+            color: '#3388ff',
+            fillOpacity: 0.2
+          },
+          showRadius: true,
+          metric: true
+        },
+        circlemarker: false,
+        marker: {
+          icon: L.icon({
+            iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+            shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+            iconSize: [25, 41],
+            iconAnchor: [12, 41],
+            popupAnchor: [1, -34],
+            shadowSize: [41, 41]
+          })
+        }
+      }
+    });
+    map.addControl(drawControl);
+
+    // Add layer control
+    const overlayMaps = {
+      "Drawings": drawnItems
+    };
+    
+    L.control.layers(baseLayers, overlayMaps, {
+      collapsed: false,
+      position: 'topleft'
+    }).addTo(map);
+
+    // Load saved shapes
+    const savedShapes = localStorage.getItem("dashboardMapShapes");
+    if (savedShapes) {
+      const geojson = JSON.parse(savedShapes);
+      L.geoJSON(geojson, {
+        onEachFeature: (feature, layer) => {
+          if (feature.properties.type === 'photo') {
+            layer.bindPopup(`
+              <div class="text-center">
+                <img src="${feature.properties.photo}" style="max-width: 200px; max-height: 150px;" class="img-thumbnail mb-2">
+                <p class="mb-1"><strong>${feature.properties.title || 'Photo'}</strong></p>
+                <small class="text-muted">${feature.properties.date || ''}</small>
+              </div>
+            `);
+          } else if (feature.properties.type === 'assessment') {
+            layer.bindPopup(`
+              <div>
+                <h6>Assessment Point</h6>
+                <p><strong>Date:</strong> ${feature.properties.date}</p>
+                <p><strong>Assessor:</strong> ${feature.properties.assessor}</p>
+                <p><strong>Health:</strong> <span class="badge ${getHealthBadgeClass(feature.properties.health)}">${feature.properties.health}</span></p>
+                <a href="#site-assessment" class="btn btn-sm btn-primary mt-2" onclick="bootstrap.Tab.getInstance(document.querySelector('#site-assessment-tab')).show()">
+                  View Details
+                </a>
+              </div>
+            `);
+          }
+          drawnItems.addLayer(layer);
         }
       });
-      map.addControl(drawControl);
+    }
 
-      // Load saved shapes
-      const savedShapes = localStorage.getItem("dashboardMapShapes");
-      if (savedShapes) {
-        const geojson = JSON.parse(savedShapes);
-        L.geoJSON(geojson, {
-          onEachFeature: (feature, layer) => {
-            if (feature.properties.type === 'photo') {
-              layer.bindPopup(`
-                <div class="text-center">
-                  <img src="${feature.properties.photo}" style="max-width: 200px; max-height: 150px;" class="img-thumbnail mb-2">
-                  <p class="mb-1"><strong>${feature.properties.title || 'Photo'}</strong></p>
-                  <small class="text-muted">${feature.properties.date || ''}</small>
-                </div>
-              `);
-            } else if (feature.properties.type === 'assessment') {
-              layer.bindPopup(`
-                <div>
-                  <h6>Assessment</h6>
-                  <p class="mb-1"><strong>Date:</strong> ${feature.properties.date}</p>
-                  <p class="mb-1"><strong>Assessor:</strong> ${feature.properties.assessor}</p>
-                  <p class="mb-1"><strong>Health:</strong> ${feature.properties.health}</p>
-                  <a href="#site-assessment" onclick="viewAssessment(${feature.properties.assessmentIndex})" class="btn btn-sm btn-primary mt-2">View Details</a>
-                </div>
-              `);
-            }
-            drawnItems.addLayer(layer);
+    // Save on draw
+    map.on(L.Draw.Event.CREATED, function (e) {
+      const layer = e.layer;
+      drawnItems.addLayer(layer);
+      saveMapShapes();
+    });
+
+    // Save on edit/delete
+    map.on(L.Draw.Event.EDITED, saveMapShapes);
+    map.on(L.Draw.Event.DELETED, saveMapShapes);
+
+    function saveMapShapes() {
+      const data = drawnItems.toGeoJSON();
+      localStorage.setItem("dashboardMapShapes", JSON.stringify(data));
+    }
+
+    window.dashboardMap = map;
+    window.drawnItems = drawnItems;
+  }
+
+  // Add assessment marker to map
+  function addAssessmentMarker() {
+    if (ecoData.assessments.length === 0) {
+      alert("No assessments available to plot. Please create an assessment first.");
+      return;
+    }
+    
+    // Show assessment selector
+    const assessmentList = ecoData.assessments
+      .map(a => `<option value="${a.date}">${a.date} - ${a.assessor} (${a.health})</option>`)
+      .join('');
+    
+    const assessmentSelect = `
+      <div class="mb-3">
+        <label for="selectAssessment" class="form-label">Select Assessment</label>
+        <select class="form-select" id="selectAssessment">
+          ${assessmentList}
+        </select>
+      </div>
+    `;
+    
+    const modal = new bootstrap.Modal(document.createElement('div'));
+    modal._element.innerHTML = `
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Add Assessment Marker</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            ${assessmentSelect}
+            <p class="mt-3">Click on the map to place the marker for the selected assessment.</p>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-primary" data-bs-dismiss="modal" id="confirmAssessmentMarker">Confirm</button>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(modal._element);
+    modal.show();
+    
+    document.getElementById('confirmAssessmentMarker').addEventListener('click', function() {
+      const selectedDate = document.getElementById('selectAssessment').value;
+      const assessment = ecoData.assessments.find(a => a.date === selectedDate);
+      
+      if (!assessment) return;
+      
+      window.dashboardMap.once('click', function(e) {
+        const marker = L.marker(e.latlng).addTo(window.drawnItems);
+        
+        // Add custom properties
+        marker.feature = {
+          type: 'Feature',
+          properties: {
+            type: 'assessment',
+            date: assessment.date,
+            assessor: assessment.assessor,
+            health: assessment.health,
+            description: assessment.description
+          },
+          geometry: {
+            type: 'Point',
+            coordinates: [e.latlng.lng, e.latlng.lat]
           }
-        });
-      }
-
-      // Save on draw
-      map.on(L.Draw.Event.CREATED, function (e) {
-        const layer = e.layer;
-        drawnItems.addLayer(layer);
+        };
+        
+        marker.bindPopup(`
+          <div>
+            <h6>Assessment Point</h6>
+            <p><strong>Date:</strong> ${assessment.date}</p>
+            <p><strong>Assessor:</strong> ${assessment.assessor}</p>
+            <p><strong>Health:</strong> <span class="badge ${getHealthBadgeClass(assessment.health)}">${assessment.health}</span></p>
+            <a href="#site-assessment" class="btn btn-sm btn-primary mt-2" onclick="bootstrap.Tab.getInstance(document.querySelector('#site-assessment-tab')).show()">
+              View Details
+            </a>
+          </div>
+        `);
+        
         saveMapShapes();
+        showToast('Assessment marker added to map', 'success');
       });
+      
+      alert("Click on the map where you want to place the assessment marker");
+    });
+    
+    // Clean up modal after close
+    modal._element.addEventListener('hidden.bs.modal', function() {
+      document.body.removeChild(modal._element);
+    });
+  }
 
-      // Save on edit/delete
-      map.on(L.Draw.Event.EDITED, saveMapShapes);
-      map.on(L.Draw.Event.DELETED, saveMapShapes);
-
-      function saveMapShapes() {
-        const data = drawnItems.toGeoJSON();
-        localStorage.setItem("dashboardMapShapes", JSON.stringify(data));
-      }
-
-      window.dashboardMap = map;
-      window.drawnItems = drawnItems;
+  // Locate user on map with more options
+  function locateUser() {
+    if (!navigator.geolocation) {
+      showToast("Geolocation not supported by your browser.", "warning");
+      return;
     }
+    
+    const map = window.dashboardMap;
+    map.locate({setView: true, maxZoom: 16, enableHighAccuracy: true});
+    
+    map.on('locationfound', function(e) {
+      const radius = e.accuracy / 2;
+      const marker = L.marker(e.latlng).addTo(map)
+        .bindPopup(`You are within ${Math.round(radius)} meters of this point`)
+        .openPopup();
+        
+      L.circle(e.latlng, radius, {
+        color: '#3388ff',
+        fillColor: '#3388ff',
+        fillOpacity: 0.2
+      }).addTo(map);
+      
+      // Add to drawn items for saving
+      window.drawnItems.addLayer(marker);
+      saveMapShapes();
+    });
+    
+    map.on('locationerror', function(e) {
+      showToast("Unable to retrieve your location: " + e.message, "danger");
+    });
+  }
 
-    // Locate user on map
-    function locateUser() {
-      if (!navigator.geolocation) {
-        showToast("Geolocation not supported by your browser", "error");
-        return;
-      }
-      
-      const map = window.dashboardMap;
-      map.locate({setView: true, maxZoom: 16});
-      
-      map.on('locationfound', function(e) {
-        const radius = e.accuracy / 2;
-        L.marker(e.latlng).addTo(map)
-          .bindPopup(`You are within ${Math.round(radius)} meters of this point`).openPopup();
-        L.circle(e.latlng, radius).addTo(map);
-        showToast("Your location has been marked on the map", "success");
-      });
-      
-      map.on('locationerror', function(e) {
-        showToast("Unable to retrieve your location: " + e.message, "error");
-      });
-    }
-
-    // Add photo marker to map
-    function addPhotoMarker() {
-      const photoUrl = prompt("Enter photo URL (or leave blank for no photo):");
-      if (photoUrl === null) return; // User cancelled
-      
-      const title = prompt("Enter marker title (optional):") || "Photo Marker";
+  // Add photo marker to map with more options
+  function addPhotoMarker() {
+    const modal = new bootstrap.Modal(document.createElement('div'));
+    modal._element.innerHTML = `
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Add Photo Marker</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <div class="mb-3">
+              <label for="photoUrl" class="form-label">Photo URL</label>
+              <input type="text" class="form-control" id="photoUrl" placeholder="Enter image URL">
+              <div class="form-text">Leave blank to add a marker without photo</div>
+            </div>
+            <div class="mb-3">
+              <label for="photoTitle" class="form-label">Title</label>
+              <input type="text" class="form-control" id="photoTitle" placeholder="Enter marker title">
+            </div>
+            <div class="mb-3">
+              <label for="photoDescription" class="form-label">Description</label>
+              <textarea class="form-control" id="photoDescription" rows="2" placeholder="Optional description"></textarea>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-primary" data-bs-dismiss="modal" id="confirmPhotoMarker">Add Marker</button>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(modal._element);
+    modal.show();
+    
+    document.getElementById('confirmPhotoMarker').addEventListener('click', function() {
+      const photoUrl = document.getElementById('photoUrl').value;
+      const title = document.getElementById('photoTitle').value || 'Photo Marker';
+      const description = document.getElementById('photoDescription').value;
       const date = new Date().toISOString().split('T')[0];
       
       window.dashboardMap.once('click', function(e) {
@@ -3198,6 +3439,7 @@
             type: 'photo',
             photo: photoUrl,
             title: title,
+            description: description,
             date: date
           },
           geometry: {
@@ -3211,1212 +3453,1212 @@
             <div class="text-center">
               <img src="${photoUrl}" style="max-width: 200px; max-height: 150px;" class="img-thumbnail mb-2">
               <p class="mb-1"><strong>${title}</strong></p>
+              ${description ? `<p class="mb-1">${description}</p>` : ''}
               <small class="text-muted">${date}</small>
             </div>
           `);
         } else {
-          marker.bindPopup(`<strong>${title}</strong><br><small>${date}</small>`);
+          marker.bindPopup(`
+            <div>
+              <strong>${title}</strong>
+              ${description ? `<p class="mb-1">${description}</p>` : ''}
+              <small>${date}</small>
+            </div>
+          `);
         }
         
         saveMapShapes();
-        showToast("Photo marker added to map", "success");
+        showToast('Photo marker added to map', 'success');
       });
       
       alert("Click on the map where you want to place the marker");
-    }
+    });
+    
+    // Clean up modal after close
+    modal._element.addEventListener('hidden.bs.modal', function() {
+      document.body.removeChild(modal._element);
+    });
+  }
 
-    // Add assessment marker to map
-    function addAssessmentMarker() {
-      if (ecoData.assessments.length === 0) {
-        showToast("No assessments available to mark", "error");
-        return;
-      }
-      
-      // Create a select dropdown for assessments
-      let assessmentOptions = ecoData.assessments.map((a, i) => 
-        `<option value="${i}">${a.date} - ${a.assessor} (${a.health})</option>`
-      ).join("");
-      
-      const assessmentSelect = `
-        <div class="mb-3">
-          <label for="assessmentMarkerSelect" class="form-label">Select Assessment</label>
-          <select class="form-select" id="assessmentMarkerSelect">
-            ${assessmentOptions}
-          </select>
-        </div>
-      `;
-      
-      if (confirm("Would you like to mark an assessment location on the map?\n\nClick OK then click on the map location.")) {
-        window.dashboardMap.once('click', function(e) {
-          const selectedIndex = document.getElementById("assessmentMarkerSelect")?.value || 0;
-          const assessment = ecoData.assessments[selectedIndex];
-          
-          const marker = L.marker(e.latlng).addTo(window.drawnItems);
-          
-          // Add custom properties
-          marker.feature = {
-            type: 'Feature',
-            properties: {
-              type: 'assessment',
-              date: assessment.date,
-              assessor: assessment.assessor,
-              health: assessment.health,
-              assessmentIndex: selectedIndex
-            },
-            geometry: {
-              type: 'Point',
-              coordinates: [e.latlng.lng, e.latlng.lat]
-            }
-          };
-          
-          marker.bindPopup(`
-            <div>
-              <h6>Assessment</h6>
-              <p class="mb-1"><strong>Date:</strong> ${assessment.date}</p>
-              <p class="mb-1"><strong>Assessor:</strong> ${assessment.assessor}</p>
-              <p class="mb-1"><strong>Health:</strong> ${assessment.health}</p>
-              <a href="#site-assessment" onclick="viewAssessment(${selectedIndex})" class="btn btn-sm btn-primary mt-2">View Details</a>
-            </div>
-          `);
-          
-          saveMapShapes();
-          showToast("Assessment location marked on map", "success");
-        });
-        
-        // Show assessment selection modal
-        const modalContent = `
-          <div class="modal fade" id="assessmentMarkerModal" tabindex="-1" aria-hidden="true">
-            <div class="modal-dialog">
-              <div class="modal-content">
-                <div class="modal-header">
-                  <h5 class="modal-title">Select Assessment</h5>
-                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                  ${assessmentSelect}
-                  <p class="mt-3 text-muted">After selecting, click on the map to place the marker.</p>
-                </div>
-                <div class="modal-footer">
-                  <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                  <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Continue</button>
-                </div>
-              </div>
-            </div>
+  // Clear map data with confirmation
+  function clearMapData() {
+    const modal = new bootstrap.Modal(document.createElement('div'));
+    modal._element.innerHTML = `
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Confirm Clear Map</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
           </div>
-        `;
-        
-        const modalContainer = document.createElement('div');
-        modalContainer.innerHTML = modalContent;
-        document.body.appendChild(modalContainer);
-        
-        const modal = new bootstrap.Modal(document.getElementById('assessmentMarkerModal'));
-        modal.show();
-        
-        // Remove modal from DOM after it's hidden
-        document.getElementById('assessmentMarkerModal').addEventListener('hidden.bs.modal', function() {
-          document.body.removeChild(modalContainer);
-        });
+          <div class="modal-body">
+            <p>Are you sure you want to clear all map drawings and markers?</p>
+            <p class="text-danger">This action cannot be undone.</p>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-danger" data-bs-dismiss="modal" id="confirmClearMap">Clear Map</button>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(modal._element);
+    modal.show();
+    
+    document.getElementById('confirmClearMap').addEventListener('click', function() {
+      localStorage.removeItem("dashboardMapShapes");
+      window.drawnItems.clearLayers();
+      showToast('Map data cleared', 'success');
+    });
+    
+    // Clean up modal after close
+    modal._element.addEventListener('hidden.bs.modal', function() {
+      document.body.removeChild(modal._element);
+    });
+  }
+
+  // Form validation helper with improved feedback
+  function validateForm(form) {
+    let isValid = true;
+    const inputs = form.querySelectorAll('input[required], select[required], textarea[required]');
+    
+    inputs.forEach(input => {
+      // Reset validation state
+      input.classList.remove('is-invalid');
+      
+      // Check required fields
+      if (!input.value) {
+        input.classList.add('is-invalid');
+        isValid = false;
       }
-    }
-
-    // Clear map data
-    function clearMapData() {
-      if (confirm("Clear all saved map drawings and markers?")) {
-        localStorage.removeItem("dashboardMapShapes");
-        window.drawnItems.clearLayers();
-        showToast("Map data cleared", "success");
+      
+      // Check minlength for text inputs
+      if (input.minLength > 0 && input.value.length < input.minLength) {
+        input.classList.add('is-invalid');
+        isValid = false;
       }
-    }
-
-    // Show toast notification
-    function showToast(message, type = "success") {
-      const toastEl = type === "success" 
-        ? document.getElementById("successToast")
-        : document.getElementById("errorToast");
       
-      const toastMessageEl = type === "success"
-        ? document.getElementById("successToastMessage")
-        : document.getElementById("errorToastMessage");
-      
-      toastMessageEl.textContent = message;
-      
-      const toast = new bootstrap.Toast(toastEl);
-      toast.show();
-    }
-
-    // Toggle dark mode
-    function toggleDarkMode() {
-      const darkModeEnabled = document.getElementById("darkMode").checked;
-      document.body.classList.toggle("dark-mode", darkModeEnabled);
-      
-      if (ecoData.settings.user) {
-        ecoData.settings.user.darkMode = darkModeEnabled;
-        saveData();
-      }
-    }
-
-    // Scroll to top
-    function scrollToTop() {
-      window.scrollTo({
-        top: 0,
-        behavior: 'smooth'
-      });
-    }
-
-    // Refresh data
-    function refreshData() {
-      loadData();
-      showToast("Data refreshed", "success");
-    }
-
-    // Show help modal
-    function showHelpModal(title, content) {
-      document.getElementById("helpModalTitle").textContent = title;
-      document.getElementById("helpModalContent").innerHTML = content;
-      
-      const modal = new bootstrap.Modal(document.getElementById('helpModal'));
-      modal.show();
-    }
-
-    function showAssessmentHelp() {
-      const content = `
-        <h5>Site Assessments</h5>
-        <p>Use this section to record formal assessments of your ecosystem site.</p>
-        
-        <h6 class="mt-3">Key Features:</h6>
-        <ul>
-          <li><strong>Health Rating:</strong> Track the overall health of the ecosystem</li>
-          <li><strong>Threats:</strong> Identify and record multiple threats</li>
-          <li><strong>Recommendations:</strong> Document suggested actions</li>
-          <li><strong>Map Integration:</strong> Mark assessment locations on the map</li>
-        </ul>
-        
-        <div class="alert alert-info mt-3">
-          <i class="bi bi-info-circle"></i> Assessments form the basis for your maintenance planning.
-        </div>
-      `;
-      showHelpModal("Assessment Help", content);
-    }
-
-    function showMaintenanceHelp() {
-      const content = `
-        <h5>Maintenance Planning</h5>
-        <p>Plan and track all maintenance tasks for your ecosystem site.</p>
-        
-        <h6 class="mt-3">Key Features:</h6>
-        <ul>
-          <li><strong>Task Management:</strong> Create, edit, and complete tasks</li>
-          <li><strong>Categories:</strong> Organize tasks by type</li>
-          <li><strong>Due Dates:</strong> Track upcoming and overdue tasks</li>
-          <li><strong>Status Tracking:</strong> Mark tasks as completed</li>
-        </ul>
-        
-        <div class="alert alert-info mt-3">
-          <i class="bi bi-info-circle"></i> Use the dashboard to monitor task completion rates.
-        </div>
-      `;
-      showHelpModal("Maintenance Help", content);
-    }
-
-    function showSpeciesHelp() {
-      const content = `
-        <h5>Species Register</h5>
-        <p>Maintain a comprehensive list of all species in your ecosystem.</p>
-        
-        <h6 class="mt-3">Key Features:</h6>
-        <ul>
-          <li><strong>Classification:</strong> Categorize species as Native, Weed, etc.</li>
-          <li><strong>Notes:</strong> Record important details about each species</li>
-          <li><strong>Filtering:</strong> View by species type</li>
-          <li><strong>Reporting:</strong> Generate species distribution charts</li>
-        </ul>
-        
-        <div class="alert alert-info mt-3">
-          <i class="bi bi-info-circle"></i> Regular updates help track biodiversity changes over time.
-        </div>
-      `;
-      showHelpModal("Species Help", content);
-    }
-
-    function showMonitoringHelp() {
-      const content = `
-        <h5>Monitoring</h5>
-        <p>Record regular observations and monitoring activities.</p>
-        
-        <h6 class="mt-3">Key Features:</h6>
-        <ul>
-          <li><strong>Detailed Notes:</strong> Record comprehensive observations</li>
-          <li><strong>Weather Tracking:</strong> Document environmental conditions</li>
-          <li><strong>Location Specific:</strong> Note areas of focus</li>
-          <li><strong>Historical Data:</strong> Track changes over time</li>
-        </ul>
-        
-        <div class="alert alert-info mt-3">
-          <i class="bi bi-info-circle"></i> Consistent monitoring helps detect early signs of ecosystem changes.
-        </div>
-      `;
-      showHelpModal("Monitoring Help", content);
-    }
-
-    function showReportsHelp() {
-      const content = `
-        <h5>Reports</h5>
-        <p>Generate comprehensive reports and export your data.</p>
-        
-        <h6 class="mt-3">Key Features:</h6>
-        <ul>
-          <li><strong>Summary Reports:</strong> Overview of all data</li>
-          <li><strong>Visual Charts:</strong> Graphical representations</li>
-          <li><strong>Data Export:</strong> CSV and PDF formats</li>
-          <li><strong>Printing:</strong> Printer-friendly output</li>
-        </ul>
-        
-        <div class="alert alert-info mt-3">
-          <i class="bi bi-info-circle"></i> Use reports for compliance documentation and stakeholder updates.
-        </div>
-      `;
-      showHelpModal("Reports Help", content);
-    }
-
-    function showSettingsHelp() {
-      const content = `
-        <h5>Settings</h5>
-        <p>Configure application preferences and manage data.</p>
-        
-        <h6 class="mt-3">Key Features:</h6>
-        <ul>
-          <li><strong>Site Information:</strong> Store details about your ecosystem site</li>
-          <li><strong>User Preferences:</strong> Set your name and preferences</li>
-          <li><strong>Dark Mode:</strong> Toggle light/dark theme</li>
-          <li><strong>Data Management:</strong> Backup, restore, or reset data</li>
-        </ul>
-        
-        <div class="alert alert-warning mt-3">
-          <i class="bi bi-exclamation-triangle"></i> Data in the Danger Zone cannot be recovered after deletion.
-        </div>
-      `;
-      showHelpModal("Settings Help", content);
-    }
-
-    // Form validation helper
-    function validateForm(form) {
-      let isValid = true;
-      const inputs = form.querySelectorAll('input[required], select[required], textarea[required]');
-      
-      inputs.forEach(input => {
-        if (!input.value) {
-          input.classList.add('is-invalid');
-          isValid = false;
-        } else {
-          input.classList.remove('is-invalid');
-        }
-        
-        // Check minlength for text inputs
-        if (input.minLength > 0 && input.value.length < input.minLength) {
+      // Custom validation for date fields
+      if (input.type === 'date') {
+        const date = new Date(input.value);
+        if (isNaN(date.getTime())) {
           input.classList.add('is-invalid');
           isValid = false;
         }
-      });
-      
-      return isValid;
-    }
-
-    // Render assessments table with pagination
-    function renderAssessments() {
-      const tableBody = document.getElementById("assessmentTableBody");
-      tableBody.innerHTML = "";
-      
-      const searchTerm = searchTerms.assessments.toLowerCase();
-      let filteredAssessments = ecoData.assessments;
-      
-      if (searchTerm) {
-        filteredAssessments = ecoData.assessments.filter(a => 
-          a.assessor.toLowerCase().includes(searchTerm) ||
-          a.description.toLowerCase().includes(searchTerm) ||
-          a.health.toLowerCase().includes(searchTerm) ||
-          a.threats.some(t => t.toLowerCase().includes(searchTerm))
-        );
       }
-      
-      const { currentPage, pageSize } = paginationConfig.assessments;
-      const startIndex = (currentPage - 1) * pageSize;
-      const paginatedAssessments = filteredAssessments.slice(startIndex, startIndex + pageSize);
-      
-      if (paginatedAssessments.length === 0) {
-        tableBody.innerHTML = `
-          <tr>
-            <td colspan="5" class="text-center py-4 text-muted">
-              ${filteredAssessments.length === 0 ? 'No assessments found' : 'No assessments on this page'}
-            </td>
-          </tr>
+    });
+    
+    return isValid;
+  }
+
+  // Show toast notification
+  function showToast(message, type = 'info') {
+    const toastContainer = document.querySelector('.toast-container');
+    const toastId = 'toast-' + Date.now();
+    
+    const toast = document.createElement('div');
+    toast.className = `toast show align-items-center text-white bg-${type} border-0`;
+    toast.id = toastId;
+    toast.setAttribute('role', 'alert');
+    toast.setAttribute('aria-live', 'assertive');
+    toast.setAttribute('aria-atomic', 'true');
+    
+    toast.innerHTML = `
+      <div class="d-flex">
+        <div class="toast-body">
+          ${message}
+        </div>
+        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+      </div>
+    `;
+    
+    toastContainer.appendChild(toast);
+    
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+      const bsToast = bootstrap.Toast.getInstance(toast);
+      if (bsToast) bsToast.hide();
+    }, 5000);
+    
+    // Remove from DOM after hide
+    toast.addEventListener('hidden.bs.toast', function() {
+      toast.remove();
+    });
+    
+    return new bootstrap.Toast(toast);
+  }
+
+  // Render assessments table with pagination
+  function renderAssessments() {
+    const tableBody = document.getElementById("assessmentTableBody");
+    tableBody.innerHTML = "";
+    
+    const { currentPage, itemsPerPage, filteredData } = paginationConfig.assessments;
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const paginatedItems = filteredData.slice(startIndex, startIndex + itemsPerPage);
+    
+    if (paginatedItems.length === 0) {
+      tableBody.innerHTML = `
+        <tr>
+          <td colspan="5" class="text-center py-4 text-muted">
+            No assessments found
+          </td>
+        </tr>
+      `;
+    } else {
+      paginatedItems.forEach((assessment, index) => {
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td>${assessment.date}</td>
+          <td>${assessment.assessor}</td>
+          <td>
+            <span class="badge ${getHealthBadgeClass(assessment.health)}">
+              ${assessment.health}
+            </span>
+          </td>
+          <td>${assessment.threats?.join(", ") || 'None'}</td>
+          <td>
+            <button class="btn btn-sm btn-outline-primary me-1" onclick="viewAssessment(${startIndex + index})">
+              <i class="bi bi-eye"></i>
+            </button>
+            <button class="btn btn-sm btn-outline-danger" onclick="deleteAssessment(${startIndex + index})">
+              <i class="bi bi-trash"></i>
+            </button>
+          </td>
         `;
-      } else {
-        paginatedAssessments.forEach((assessment, index) => {
-          const actualIndex = ecoData.assessments.findIndex(a => a.date === assessment.date && a.assessor === assessment.assessor);
-          const row = document.createElement("tr");
-          row.innerHTML = `
-            <td>${assessment.date}</td>
-            <td>${assessment.assessor}</td>
-            <td>
-              <span class="badge ${getHealthBadgeClass(assessment.health)}">
-                ${assessment.health}
-              </span>
-            </td>
-            <td>${assessment.threats.join(", ")}</td>
-            <td>
-              <button class="btn btn-sm btn-outline-primary" onclick="viewAssessment(${actualIndex})">
-                <i class="bi bi-eye"></i> View
-              </button>
-              <button class="btn btn-sm btn-outline-danger" onclick="deleteAssessment(${actualIndex})">
-                <i class="bi bi-trash"></i>
-              </button>
-            </td>
-          `;
-          tableBody.appendChild(row);
-        });
-      }
-      
-      // Update pagination info
-      document.getElementById("assessmentPaginationInfo").textContent = 
-        `Showing ${startIndex + 1}-${Math.min(startIndex + pageSize, filteredAssessments.length)} of ${filteredAssessments.length} assessments`;
-      
-      // Update pagination buttons
-      document.getElementById("prevAssessmentPage").disabled = currentPage === 1;
-      document.getElementById("nextAssessmentPage").disabled = 
-        currentPage * pageSize >= filteredAssessments.length;
+        tableBody.appendChild(row);
+      });
     }
+    
+    // Update pagination info
+    document.getElementById("assessmentPaginationInfo").textContent = 
+      `Showing ${startIndex + 1}-${Math.min(startIndex + itemsPerPage, filteredData.length)} of ${filteredData.length} assessments`;
+    
+    // Update pagination buttons
+    document.getElementById("prevAssessmentPage").disabled = currentPage === 1;
+    document.getElementById("nextAssessmentPage").disabled = 
+      currentPage * itemsPerPage >= filteredData.length;
+  }
 
-    function getHealthBadgeClass(health) {
-      switch(health) {
-        case 'Excellent': return 'bg-success';
-        case 'Good': return 'bg-primary';
-        case 'Fair': return 'bg-warning';
-        case 'Poor': return 'bg-danger';
-        case 'Critical': return 'bg-dark';
-        default: return 'bg-secondary';
-      }
+  function getHealthBadgeClass(health) {
+    switch(health) {
+      case 'Excellent': return 'bg-success';
+      case 'Good': return 'bg-primary';
+      case 'Fair': return 'bg-warning';
+      case 'Poor': return 'bg-danger';
+      case 'Critical': return 'bg-dark';
+      default: return 'bg-secondary';
     }
+  }
 
-    function viewAssessment(index) {
-      const assessment = ecoData.assessments[index];
-      const modalHtml = `
-        <div class="modal fade" id="assessmentModal" tabindex="-1" aria-hidden="true">
-          <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-              <div class="modal-header">
-                <h5 class="modal-title">Assessment Details</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-              </div>
-              <div class="modal-body">
-                <div class="row mb-3">
-                  <div class="col-md-6">
-                    <p><strong>Date:</strong> ${assessment.date}</p>
-                    <p><strong>Assessor:</strong> ${assessment.assessor}</p>
-                  </div>
-                  <div class="col-md-6">
-                    <p><strong>Health:</strong> <span class="badge ${getHealthBadgeClass(assessment.health)}">${assessment.health}</span></p>
-                    <p><strong>Threats:</strong> ${assessment.threats.join(", ")}</p>
-                  </div>
+  // Search assessments
+  function searchAssessments() {
+    const searchTerm = document.getElementById("assessmentSearch").value.toLowerCase();
+    
+    if (!searchTerm) {
+      paginationConfig.assessments.filteredData = [...ecoData.assessments];
+    } else {
+      paginationConfig.assessments.filteredData = ecoData.assessments.filter(a => 
+        a.date.toLowerCase().includes(searchTerm) ||
+        a.assessor.toLowerCase().includes(searchTerm) ||
+        a.health.toLowerCase().includes(searchTerm) ||
+        a.threats?.some(t => t.toLowerCase().includes(searchTerm)) ||
+        a.description?.toLowerCase().includes(searchTerm) ||
+        a.recommendations?.toLowerCase().includes(searchTerm)
+      );
+    }
+    
+    paginationConfig.assessments.currentPage = 1;
+    renderAssessments();
+  }
+
+  // View assessment in modal with more details
+  function viewAssessment(index) {
+    const assessment = ecoData.assessments[index];
+    const modalHtml = `
+      <div class="modal fade" id="assessmentModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Assessment Details</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <div class="row mb-3">
+                <div class="col-md-6">
+                  <p><strong>Date:</strong> ${assessment.date}</p>
+                  <p><strong>Assessor:</strong> ${assessment.assessor}</p>
                 </div>
-                <div class="mb-3">
-                  <h6>Site Description</h6>
-                  <p>${assessment.description || 'No description provided.'}</p>
+                <div class="col-md-6">
+                  <p><strong>Health:</strong> <span class="badge ${getHealthBadgeClass(assessment.health)}">${assessment.health}</span></p>
+                  <p><strong>Threats:</strong> ${assessment.threats?.join(", ") || 'None'}</p>
                 </div>
-                ${assessment.recommendations ? `
-                <div class="mb-3">
-                  <h6>Recommendations</h6>
-                  <p>${assessment.recommendations}</p>
-                </div>
-                ` : ''}
               </div>
-              <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-primary" onclick="editAssessment(${index})">
-                  <i class="bi bi-pencil"></i> Edit
-                </button>
+              <div class="mb-3">
+                <h6>Site Description</h6>
+                <p>${assessment.description || 'No description provided.'}</p>
               </div>
+              ${assessment.recommendations ? `
+              <div class="mb-3">
+                <h6>Recommendations</h6>
+                <p>${assessment.recommendations}</p>
+              </div>
+              ` : ''}
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+              <button type="button" class="btn btn-primary" onclick="editAssessment(${index})">
+                <i class="bi bi-pencil"></i> Edit
+              </button>
             </div>
           </div>
         </div>
-      `;
-      
-      const modalContainer = document.createElement('div');
-      modalContainer.innerHTML = modalHtml;
-      document.body.appendChild(modalContainer);
-      
-      const modal = new bootstrap.Modal(document.getElementById('assessmentModal'));
-      modal.show();
-      
-      // Remove modal from DOM after it's hidden
-      document.getElementById('assessmentModal').addEventListener('hidden.bs.modal', function() {
-        document.body.removeChild(modalContainer);
-      });
-    }
+      </div>
+    `;
+    
+    const modalContainer = document.createElement('div');
+    modalContainer.innerHTML = modalHtml;
+    document.body.appendChild(modalContainer);
+    
+    const modal = new bootstrap.Modal(document.getElementById('assessmentModal'));
+    modal.show();
+    
+    // Remove modal from DOM after it's hidden
+    document.getElementById('assessmentModal').addEventListener('hidden.bs.modal', function() {
+      document.body.removeChild(modalContainer);
+    });
+  }
 
-    function editAssessment(index) {
-      const assessment = ecoData.assessments[index];
-      
-      // Fill the form with assessment data
-      document.getElementById("assessmentDate").value = assessment.date;
-      document.getElementById("assessorName").value = assessment.assessor;
-      document.getElementById("siteDescription").value = assessment.description;
-      document.getElementById("ecosystemHealth").value = assessment.health;
-      
-      // Select threats
-      const threatsSelect = document.getElementById("threats");
-      Array.from(threatsSelect.options).forEach(option => {
-        option.selected = assessment.threats.includes(option.value);
-      });
-      
-      document.getElementById("recommendations").value = assessment.recommendations || '';
-      
-      // Remove the assessment from the array
+  // Edit assessment
+  function editAssessment(index) {
+    const assessment = ecoData.assessments[index];
+    
+    // Fill the form with assessment data
+    document.getElementById("assessmentDate").value = assessment.date;
+    document.getElementById("assessorName").value = assessment.assessor;
+    document.getElementById("siteDescription").value = assessment.description || '';
+    document.getElementById("ecosystemHealth").value = assessment.health;
+    
+    // Select threats
+    const threatsSelect = document.getElementById("threats");
+    Array.from(threatsSelect.options).forEach(option => {
+      option.selected = assessment.threats?.includes(option.value) || false;
+    });
+    
+    document.getElementById("recommendations").value = assessment.recommendations || '';
+    
+    // Remove the assessment from the array
+    ecoData.assessments.splice(index, 1);
+    saveData();
+    renderAssessments();
+    
+    // Scroll to form and switch tab
+    bootstrap.Tab.getInstance(document.querySelector('#site-assessment-tab')).show();
+    document.getElementById("assessmentForm").scrollIntoView({ behavior: 'smooth' });
+    
+    showToast('Assessment loaded for editing', 'info');
+  }
+
+  function deleteAssessment(index) {
+    const modal = new bootstrap.Modal(document.createElement('div'));
+    modal._element.innerHTML = `
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Confirm Delete</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <p>Are you sure you want to delete this assessment?</p>
+            <p class="text-danger">This action cannot be undone.</p>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-danger" data-bs-dismiss="modal" id="confirmDeleteAssessment">Delete</button>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(modal._element);
+    modal.show();
+    
+    document.getElementById('confirmDeleteAssessment').addEventListener('click', function() {
       ecoData.assessments.splice(index, 1);
       saveData();
       renderAssessments();
-      
-      // Scroll to form
-      document.getElementById("assessmentForm").scrollIntoView({ behavior: 'smooth' });
-      
-      // Close the modal
-      bootstrap.Modal.getInstance(document.getElementById('assessmentModal')).hide();
-    }
+      showToast('Assessment deleted', 'success');
+    });
+    
+    // Clean up modal after close
+    modal._element.addEventListener('hidden.bs.modal', function() {
+      document.body.removeChild(modal._element);
+    });
+  }
 
-    function deleteAssessment(index) {
-      if (confirm("Delete this assessment?")) {
-        ecoData.assessments.splice(index, 1);
-        saveData();
-        renderAssessments();
-        showToast("Assessment deleted", "success");
-      }
+  // Filter tasks by status
+  function filterTasks(status) {
+    switch(status) {
+      case 'all':
+        paginationConfig.maintenance.filteredData = [...ecoData.maintenance];
+        break;
+      case 'pending':
+        paginationConfig.maintenance.filteredData = ecoData.maintenance.filter(t => !t.done);
+        break;
+      case 'completed':
+        paginationConfig.maintenance.filteredData = ecoData.maintenance.filter(t => t.done);
+        break;
     }
+    
+    paginationConfig.maintenance.currentPage = 1;
+    renderMaintenanceTasks();
+  }
 
-    function searchAssessments() {
-      searchTerms.assessments = document.getElementById("assessmentSearch").value;
-      paginationConfig.assessments.currentPage = 1;
-      renderAssessments();
-    }
-
-    // Render maintenance tasks with pagination and filtering
-    function renderMaintenanceTasks() {
-      const tableBody = document.getElementById("maintenanceTableBody");
-      tableBody.innerHTML = "";
+  // Render maintenance tasks with pagination
+  function renderMaintenanceTasks() {
+    const tableBody = document.getElementById("maintenanceTableBody");
+    tableBody.innerHTML = "";
+    
+    const { currentPage, itemsPerPage, filteredData } = paginationConfig.maintenance;
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const paginatedItems = filteredData.slice(startIndex, startIndex + itemsPerPage);
+    
+    if (paginatedItems.length === 0) {
+      tableBody.innerHTML = `
+        <tr>
+          <td colspan="5" class="text-center py-4 text-muted">
+            No tasks found
+          </td>
+        </tr>
+      `;
+    } else {
+      // Sort by due date (ascending)
+      const sortedTasks = [...paginatedItems].sort((a, b) => new Date(a.due) - new Date(b.due));
       
-      let filteredTasks = ecoData.maintenance;
-      
-      // Apply filter
-      if (filterStates.maintenance === "pending") {
-        filteredTasks = ecoData.maintenance.filter(t => !t.done);
-      } else if (filterStates.maintenance === "completed") {
-        filteredTasks = ecoData.maintenance.filter(t => t.done);
-      }
-      
-      const { currentPage, pageSize } = paginationConfig.maintenance;
-      const startIndex = (currentPage - 1) * pageSize;
-      const paginatedTasks = filteredTasks.slice(startIndex, startIndex + pageSize);
-      
-      if (paginatedTasks.length === 0) {
-        tableBody.innerHTML = `
-          <tr>
-            <td colspan="5" class="text-center py-4 text-muted">
-              ${filteredTasks.length === 0 ? 'No tasks found' : 'No tasks on this page'}
-            </td>
-          </tr>
-        `;
-      } else {
-        // Sort by due date (ascending)
-        const sortedTasks = [...paginatedTasks].sort((a, b) => new Date(a.due) - new Date(b.due));
+      sortedTasks.forEach((task, index) => {
+        const row = document.createElement("tr");
+        if (task.done) row.classList.add("table-secondary");
         
-        sortedTasks.forEach((task, index) => {
-          const actualIndex = ecoData.maintenance.findIndex(t => 
-            t.name === task.name && t.due === task.due && t.category === task.category
-          );
-          
-          const row = document.createElement("tr");
-          if (task.done) row.classList.add("table-secondary");
-          
-          const dueDate = new Date(task.due);
-          const today = new Date();
-          today.setHours(0, 0, 0, 0);
-          
-          let dueBadge = '';
-          if (!task.done) {
-            if (dueDate < today) {
-              dueBadge = '<span class="badge bg-danger ms-2">Overdue</span>';
-            } else if (dueDate.toDateString() === today.toDateString()) {
-              dueBadge = '<span class="badge bg-warning ms-2">Due Today</span>';
-            }
+        const dueDate = new Date(task.due);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        let dueBadge = '';
+        if (!task.done) {
+          if (dueDate < today) {
+            dueBadge = '<span class="badge bg-danger ms-2">Overdue</span>';
+          } else if (dueDate.toDateString() === today.toDateString()) {
+            dueBadge = '<span class="badge bg-warning ms-2">Due Today</span>';
+          } else if ((dueDate - today) / (1000 * 60 * 60 * 24) <= 7) {
+            dueBadge = '<span class="badge bg-info ms-2">Due Soon</span>';
           }
-          
-          row.innerHTML = `
-            <td class="${task.done ? 'task-completed' : ''}">${task.name}</td>
-            <td>${task.category}</td>
-            <td>
-              ${dueDate.toLocaleDateString()}
-              ${dueBadge}
-            </td>
-            <td>
-              <div class="form-check form-switch">
-                <input class="form-check-input" type="checkbox" role="switch" 
-                  ${task.done ? "checked" : ""} onchange="toggleTaskStatus(${actualIndex})">
-                <label class="form-check-label">${task.done ? "Completed" : "Pending"}</label>
-              </div>
-            </td>
-            <td>
-              <button class="btn btn-sm btn-outline-primary me-1" onclick="editTask(${actualIndex})">
-                <i class="bi bi-pencil"></i>
-              </button>
-              <button class="btn btn-sm btn-outline-danger" onclick="deleteTask(${actualIndex})">
-                <i class="bi bi-trash"></i>
-              </button>
-            </td>
-          `;
-          tableBody.appendChild(row);
-        });
-      }
-      
-      // Update pagination info
-      document.getElementById("taskPaginationInfo").textContent = 
-        `Showing ${startIndex + 1}-${Math.min(startIndex + pageSize, filteredTasks.length)} of ${filteredTasks.length} tasks`;
-      
-      // Update pagination buttons
-      document.getElementById("prevTaskPage").disabled = currentPage === 1;
-      document.getElementById("nextTaskPage").disabled = 
-        currentPage * pageSize >= filteredTasks.length;
+        }
+        
+        row.innerHTML = `
+          <td class="${task.done ? 'task-completed' : ''}">${task.name}</td>
+          <td>${task.category}</td>
+          <td>
+            ${dueDate.toLocaleDateString()}
+            ${dueBadge}
+          </td>
+          <td>
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" role="switch" 
+                ${task.done ? "checked" : ""} onchange="toggleTaskStatus(${startIndex + index})">
+              <label class="form-check-label">${task.done ? "Completed" : "Pending"}</label>
+            </div>
+          </td>
+          <td>
+            <button class="btn btn-sm btn-outline-primary me-1" onclick="editTask(${startIndex + index})">
+              <i class="bi bi-pencil"></i>
+            </button>
+            <button class="btn btn-sm btn-outline-danger" onclick="deleteTask(${startIndex + index})">
+              <i class="bi bi-trash"></i>
+            </button>
+          </td>
+        `;
+        tableBody.appendChild(row);
+      });
     }
+    
+    // Update pagination info
+    document.getElementById("taskPaginationInfo").textContent = 
+      `Showing ${startIndex + 1}-${Math.min(startIndex + itemsPerPage, filteredData.length)} of ${filteredData.length} tasks`;
+    
+    // Update pagination buttons
+    document.getElementById("prevTaskPage").disabled = currentPage === 1;
+    document.getElementById("nextTaskPage").disabled = 
+      currentPage * itemsPerPage >= filteredData.length;
+  }
 
-    function filterTasks(filter) {
-      filterStates.maintenance = filter;
-      paginationConfig.maintenance.currentPage = 1;
-      renderMaintenanceTasks();
-    }
+  function toggleTaskStatus(index) {
+    ecoData.maintenance[index].done = !ecoData.maintenance[index].done;
+    saveData();
+    renderMaintenanceTasks();
+    showToast(`Task marked as ${ecoData.maintenance[index].done ? 'completed' : 'pending'}`, 'success');
+  }
 
-    function toggleTaskStatus(index) {
-      ecoData.maintenance[index].done = !ecoData.maintenance[index].done;
-      saveData();
-      renderMaintenanceTasks();
-      renderUpcomingTasks();
-      
-      const task = ecoData.maintenance[index];
-      const status = task.done ? "completed" : "pending";
-      showToast(`Task marked as ${status}`, "success");
-    }
+  function editTask(index) {
+    const task = ecoData.maintenance[index];
+    document.getElementById("taskName").value = task.name;
+    document.getElementById("taskCategory").value = task.category;
+    document.getElementById("taskDueDate").value = task.due;
+    document.getElementById("taskNotes").value = task.notes || '';
+    
+    // Remove the task from the array
+    ecoData.maintenance.splice(index, 1);
+    saveData();
+    renderMaintenanceTasks();
+    
+    // Scroll to form and switch tab
+    bootstrap.Tab.getInstance(document.querySelector('#maintenance-plan-tab')).show();
+    document.getElementById("maintenanceForm").scrollIntoView({ behavior: 'smooth' });
+    
+    showToast('Task loaded for editing', 'info');
+  }
 
-    function editTask(index) {
-      const task = ecoData.maintenance[index];
-      document.getElementById("taskName").value = task.name;
-      document.getElementById("taskCategory").value = task.category;
-      document.getElementById("taskDueDate").value = task.due;
-      document.getElementById("taskNotes").value = task.notes || '';
-      
-      // Remove the task from the array
+  function deleteTask(index) {
+    const modal = new bootstrap.Modal(document.createElement('div'));
+    modal._element.innerHTML = `
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Confirm Delete</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <p>Are you sure you want to delete this task?</p>
+            <p class="text-danger">This action cannot be undone.</p>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-danger" data-bs-dismiss="modal" id="confirmDeleteTask">Delete</button>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(modal._element);
+    modal.show();
+    
+    document.getElementById('confirmDeleteTask').addEventListener('click', function() {
       ecoData.maintenance.splice(index, 1);
       saveData();
       renderMaintenanceTasks();
-      renderUpcomingTasks();
-      
-      // Scroll to form
-      document.getElementById("maintenanceForm").scrollIntoView({ behavior: 'smooth' });
-    }
+      showToast('Task deleted', 'success');
+    });
+    
+    // Clean up modal after close
+    modal._element.addEventListener('hidden.bs.modal', function() {
+      document.body.removeChild(modal._element);
+    });
+  }
 
-    function deleteTask(index) {
-      if (confirm("Delete this task?")) {
-        ecoData.maintenance.splice(index, 1);
-        saveData();
-        renderMaintenanceTasks();
-        renderUpcomingTasks();
-        showToast("Task deleted", "success");
-      }
+  // Filter species by type
+  function filterSpecies(type) {
+    switch(type) {
+      case 'all':
+        paginationConfig.species.filteredData = [...ecoData.species];
+        break;
+      case 'native':
+        paginationConfig.species.filteredData = ecoData.species.filter(s => s.type === 'Native');
+        break;
+      case 'weed':
+        paginationConfig.species.filteredData = ecoData.species.filter(s => s.type === 'Weed');
+        break;
     }
+    
+    paginationConfig.species.currentPage = 1;
+    renderSpeciesList();
+  }
 
-    // Render species list with pagination and filtering
-    function renderSpeciesList() {
-      const body = document.getElementById("speciesTableBody");
-      body.innerHTML = "";
+  // Render species list with pagination
+  function renderSpeciesList() {
+    const body = document.getElementById("speciesTableBody");
+    body.innerHTML = "";
+    
+    const { currentPage, itemsPerPage, filteredData } = paginationConfig.species;
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const paginatedItems = filteredData.slice(startIndex, startIndex + itemsPerPage);
+    
+    if (paginatedItems.length === 0) {
+      body.innerHTML = `
+        <tr>
+          <td colspan="4" class="text-center py-4 text-muted">
+            No species found
+          </td>
+        </tr>
+      `;
+    } else {
+      // Sort alphabetically by name
+      const sortedSpecies = [...paginatedItems].sort((a, b) => a.name.localeCompare(b.name));
       
-      let filteredSpecies = ecoData.species;
-      
-      // Apply filter
-      if (filterStates.species === "native") {
-        filteredSpecies = ecoData.species.filter(s => s.type === "Native");
-      } else if (filterStates.species === "weed") {
-        filteredSpecies = ecoData.species.filter(s => s.type === "Weed");
-      }
-      
-      const { currentPage, pageSize } = paginationConfig.species;
-      const startIndex = (currentPage - 1) * pageSize;
-      const paginatedSpecies = filteredSpecies.slice(startIndex, startIndex + pageSize);
-      
-      if (paginatedSpecies.length === 0) {
-        body.innerHTML = `
-          <tr>
-            <td colspan="4" class="text-center py-4 text-muted">
-              ${filteredSpecies.length === 0 ? 'No species found' : 'No species on this page'}
-            </td>
-          </tr>
+      sortedSpecies.forEach((sp, i) => {
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td>${sp.name}</td>
+          <td>
+            <span class="badge species-badge ${getSpeciesBadgeClass(sp.type)}">
+              ${sp.type}
+            </span>
+          </td>
+          <td>${sp.notes || "-"}</td>
+          <td>
+            <button class="btn btn-sm btn-outline-primary me-1" onclick="editSpecies(${startIndex + i})">
+              <i class="bi bi-pencil"></i>
+            </button>
+            <button class="btn btn-sm btn-outline-danger" onclick="deleteSpecies(${startIndex + i})">
+              <i class="bi bi-trash"></i>
+            </button>
+          </td>
         `;
-      } else {
-        // Sort alphabetically by name
-        const sortedSpecies = [...paginatedSpecies].sort((a, b) => a.name.localeCompare(b.name));
-        
-        sortedSpecies.forEach((sp, i) => {
-          const actualIndex = ecoData.species.findIndex(s => 
-            s.name === sp.name && s.type === sp.type
-          );
-          
-          const row = document.createElement("tr");
-          row.innerHTML = `
-            <td>${sp.name}</td>
-            <td>
-              <span class="badge species-badge ${getSpeciesBadgeClass(sp.type)}">
-                ${sp.type}
-              </span>
-            </td>
-            <td>${sp.notes || "-"}</td>
-            <td>
-              <button class="btn btn-sm btn-outline-primary me-1" onclick="editSpecies(${actualIndex})">
-                <i class="bi bi-pencil"></i>
-              </button>
-              <button class="btn btn-sm btn-outline-danger" onclick="deleteSpecies(${actualIndex})">
-                <i class="bi bi-trash"></i>
-              </button>
-            </td>
-          `;
-          body.appendChild(row);
-        });
-      }
-      
-      // Update pagination info
-      document.getElementById("speciesPaginationInfo").textContent = 
-        `Showing ${startIndex + 1}-${Math.min(startIndex + pageSize, filteredSpecies.length)} of ${filteredSpecies.length} species`;
-      
-      // Update pagination buttons
-      document.getElementById("prevSpeciesPage").disabled = currentPage === 1;
-      document.getElementById("nextSpeciesPage").disabled = 
-        currentPage * pageSize >= filteredSpecies.length;
+        body.appendChild(row);
+      });
     }
+    
+    // Update pagination info
+    document.getElementById("speciesPaginationInfo").textContent = 
+      `Showing ${startIndex + 1}-${Math.min(startIndex + itemsPerPage, filteredData.length)} of ${filteredData.length} species`;
+    
+    // Update pagination buttons
+    document.getElementById("prevSpeciesPage").disabled = currentPage === 1;
+    document.getElementById("nextSpeciesPage").disabled = 
+      currentPage * itemsPerPage >= filteredData.length;
+  }
 
-    function getSpeciesBadgeClass(type) {
-      switch(type.toLowerCase()) {
-        case 'native': return 'species-native';
-        case 'weed': return 'species-weed';
-        case 'introduced': return 'species-introduced';
-        default: return 'species-unknown';
-      }
+  function getSpeciesBadgeClass(type) {
+    switch(type.toLowerCase()) {
+      case 'native': return 'species-native';
+      case 'weed': return 'species-weed';
+      case 'introduced': return 'species-introduced';
+      default: return 'species-unknown';
     }
+  }
 
-    function filterSpecies(filter) {
-      filterStates.species = filter;
-      paginationConfig.species.currentPage = 1;
-      renderSpeciesList();
-    }
+  function editSpecies(index) {
+    const species = ecoData.species[index];
+    document.getElementById("speciesName").value = species.name;
+    document.getElementById("speciesType").value = species.type;
+    document.getElementById("speciesNotes").value = species.notes || '';
+    
+    // Remove the species from the array
+    ecoData.species.splice(index, 1);
+    saveData();
+    renderSpeciesList();
+    
+    // Scroll to form and switch tab
+    bootstrap.Tab.getInstance(document.querySelector('#species-register-tab')).show();
+    document.getElementById("speciesForm").scrollIntoView({ behavior: 'smooth' });
+    
+    showToast('Species loaded for editing', 'info');
+  }
 
-    function editSpecies(index) {
-      const species = ecoData.species[index];
-      document.getElementById("speciesName").value = species.name;
-      document.getElementById("speciesType").value = species.type;
-      document.getElementById("speciesNotes").value = species.notes || '';
-      
-      // Remove the species from the array
+  function deleteSpecies(index) {
+    const modal = new bootstrap.Modal(document.createElement('div'));
+    modal._element.innerHTML = `
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Confirm Delete</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <p>Are you sure you want to delete this species?</p>
+            <p class="text-danger">This action cannot be undone.</p>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-danger" data-bs-dismiss="modal" id="confirmDeleteSpecies">Delete</button>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(modal._element);
+    modal.show();
+    
+    document.getElementById('confirmDeleteSpecies').addEventListener('click', function() {
       ecoData.species.splice(index, 1);
       saveData();
       renderSpeciesList();
-      
-      // Scroll to form
-      document.getElementById("speciesForm").scrollIntoView({ behavior: 'smooth' });
-    }
+      showToast('Species deleted', 'success');
+    });
+    
+    // Clean up modal after close
+    modal._element.addEventListener('hidden.bs.modal', function() {
+      document.body.removeChild(modal._element);
+    });
+  }
 
-    function deleteSpecies(index) {
-      if (confirm("Delete this species?")) {
-        ecoData.species.splice(index, 1);
-        saveData();
-        renderSpeciesList();
-        showToast("Species deleted", "success");
-      }
+  // Search monitoring entries
+  function searchMonitoring() {
+    const searchTerm = document.getElementById("monitoringSearch").value.toLowerCase();
+    
+    if (!searchTerm) {
+      paginationConfig.monitoring.filteredData = [...ecoData.monitoring];
+    } else {
+      paginationConfig.monitoring.filteredData = ecoData.monitoring.filter(m => 
+        m.date.toLowerCase().includes(searchTerm) ||
+        m.observer.toLowerCase().includes(searchTerm) ||
+        m.area?.toLowerCase().includes(searchTerm) ||
+        m.weather?.toLowerCase().includes(searchTerm) ||
+        m.notes?.toLowerCase().includes(searchTerm)
+      );
     }
+    
+    paginationConfig.monitoring.currentPage = 1;
+    renderMonitoringEntries();
+  }
 
-    // Render monitoring entries with pagination and search
-    function renderMonitoringEntries() {
-      const body = document.getElementById("monitoringTableBody");
-      body.innerHTML = "";
+  // Render monitoring entries with pagination
+  function renderMonitoringEntries() {
+    const body = document.getElementById("monitoringTableBody");
+    body.innerHTML = "";
+    
+    const { currentPage, itemsPerPage, filteredData } = paginationConfig.monitoring;
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const paginatedItems = filteredData.slice(startIndex, startIndex + itemsPerPage);
+    
+    if (paginatedItems.length === 0) {
+      body.innerHTML = `
+        <tr>
+          <td colspan="6" class="text-center py-4 text-muted">
+            No monitoring entries found
+          </td>
+        </tr>
+      `;
+    } else {
+      // Sort by date (newest first)
+      const sortedEntries = [...paginatedItems].sort((a, b) => new Date(b.date) - new Date(a.date));
       
-      const searchTerm = searchTerms.monitoring.toLowerCase();
-      let filteredEntries = ecoData.monitoring;
-      
-      if (searchTerm) {
-        filteredEntries = ecoData.monitoring.filter(m => 
-          m.observer.toLowerCase().includes(searchTerm) ||
-          m.area.toLowerCase().includes(searchTerm) ||
-          m.weather.toLowerCase().includes(searchTerm) ||
-          m.notes.toLowerCase().includes(searchTerm)
-        );
-      }
-      
-      const { currentPage, pageSize } = paginationConfig.monitoring;
-      const startIndex = (currentPage - 1) * pageSize;
-      const paginatedEntries = filteredEntries.slice(startIndex, startIndex + pageSize);
-      
-      if (paginatedEntries.length === 0) {
-        body.innerHTML = `
-          <tr>
-            <td colspan="6" class="text-center py-4 text-muted">
-              ${filteredEntries.length === 0 ? 'No entries found' : 'No entries on this page'}
-            </td>
-          </tr>
+      sortedEntries.forEach((entry, i) => {
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td>${entry.date}</td>
+          <td>${entry.observer}</td>
+          <td>${entry.area || "-"}</td>
+          <td>${entry.weather || "-"}</td>
+          <td class="text-truncate" style="max-width: 200px;" title="${entry.notes}">
+            ${entry.notes || "-"}
+          </td>
+          <td>
+            <button class="btn btn-sm btn-outline-primary me-1" onclick="viewMonitoringEntry(${startIndex + i})">
+              <i class="bi bi-eye"></i>
+            </button>
+            <button class="btn btn-sm btn-outline-danger" onclick="deleteMonitoringEntry(${startIndex + i})">
+              <i class="bi bi-trash"></i>
+            </button>
+          </td>
         `;
-      } else {
-        // Sort by date (newest first)
-        const sortedEntries = [...paginatedEntries].sort((a, b) => new Date(b.date) - new Date(a.date));
-        
-        sortedEntries.forEach((entry, i) => {
-          const actualIndex = ecoData.monitoring.findIndex(m => 
-            m.date === entry.date && m.observer === entry.observer && m.notes === entry.notes
-          );
-          
-          const row = document.createElement("tr");
-          row.innerHTML = `
-            <td>${entry.date}</td>
-            <td>${entry.observer}</td>
-            <td>${entry.area || "-"}</td>
-            <td>${entry.weather || "-"}</td>
-            <td class="text-truncate" style="max-width: 200px;" title="${entry.notes}">
-              ${entry.notes || "-"}
-            </td>
-            <td>
-              <button class="btn btn-sm btn-outline-primary me-1" onclick="viewMonitoringEntry(${actualIndex})">
-                <i class="bi bi-eye"></i>
-              </button>
-              <button class="btn btn-sm btn-outline-danger" onclick="deleteMonitoringEntry(${actualIndex})">
-                <i class="bi bi-trash"></i>
-              </button>
-            </td>
-          `;
-          body.appendChild(row);
-        });
-      }
-      
-      // Update pagination info
-      document.getElementById("monitoringPaginationInfo").textContent = 
-        `Showing ${startIndex + 1}-${Math.min(startIndex + pageSize, filteredEntries.length)} of ${filteredEntries.length} entries`;
-      
-      // Update pagination buttons
-      document.getElementById("prevMonitoringPage").disabled = currentPage === 1;
-      document.getElementById("nextMonitoringPage").disabled = 
-        currentPage * pageSize >= filteredEntries.length;
+        body.appendChild(row);
+      });
     }
+    
+    // Update pagination info
+    document.getElementById("monitoringPaginationInfo").textContent = 
+      `Showing ${startIndex + 1}-${Math.min(startIndex + itemsPerPage, filteredData.length)} of ${filteredData.length} entries`;
+    
+    // Update pagination buttons
+    document.getElementById("prevMonitoringPage").disabled = currentPage === 1;
+    document.getElementById("nextMonitoringPage").disabled = 
+      currentPage * itemsPerPage >= filteredData.length;
+  }
 
-    function searchMonitoring() {
-      searchTerms.monitoring = document.getElementById("monitoringSearch").value;
-      paginationConfig.monitoring.currentPage = 1;
-      renderMonitoringEntries();
-    }
-
-    function viewMonitoringEntry(index) {
-      const entry = ecoData.monitoring[index];
-      const modalHtml = `
-        <div class="modal fade" id="monitoringModal" tabindex="-1" aria-hidden="true">
-          <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-              <div class="modal-header">
-                <h5 class="modal-title">Monitoring Details</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-              </div>
-              <div class="modal-body">
-                <div class="row mb-3">
-                  <div class="col-md-4">
-                    <p><strong>Date:</strong> ${entry.date}</p>
-                  </div>
-                  <div class="col-md-4">
-                    <p><strong>Observer:</strong> ${entry.observer}</p>
-                  </div>
-                  <div class="col-md-4">
-                    <p><strong>Weather:</strong> ${entry.weather || 'Not recorded'}</p>
-                  </div>
+  function viewMonitoringEntry(index) {
+    const entry = ecoData.monitoring[index];
+    const modalHtml = `
+      <div class="modal fade" id="monitoringModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Monitoring Details</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <div class="row mb-3">
+                <div class="col-md-4">
+                  <p><strong>Date:</strong> ${entry.date}</p>
                 </div>
-                <div class="mb-3">
-                  <p><strong>Location:</strong> ${entry.area || 'Not specified'}</p>
+                <div class="col-md-4">
+                  <p><strong>Observer:</strong> ${entry.observer}</p>
                 </div>
-                <div class="mb-3">
-                  <h6>Observations</h6>
-                  <p style="white-space: pre-wrap;">${entry.notes || 'No observations recorded.'}</p>
+                <div class="col-md-4">
+                  <p><strong>Weather:</strong> ${entry.weather || 'Not recorded'}</p>
                 </div>
               </div>
-              <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-primary" onclick="editMonitoringEntry(${index})">
-                  <i class="bi bi-pencil"></i> Edit
-                </button>
+              <div class="mb-3">
+                <p><strong>Location:</strong> ${entry.area || 'Not specified'}</p>
               </div>
+              <div class="mb-3">
+                <h6>Observations</h6>
+                <p>${entry.notes || 'No observations recorded.'}</p>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+              <button type="button" class="btn btn-primary" onclick="editMonitoringEntry(${index})">
+                <i class="bi bi-pencil"></i> Edit
+              </button>
             </div>
           </div>
         </div>
-      `;
-      
-      const modalContainer = document.createElement('div');
-      modalContainer.innerHTML = modalHtml;
-      document.body.appendChild(modalContainer);
-      
-      const modal = new bootstrap.Modal(document.getElementById('monitoringModal'));
-      modal.show();
-      
-      // Remove modal from DOM after it's hidden
-      document.getElementById('monitoringModal').addEventListener('hidden.bs.modal', function() {
-        document.body.removeChild(modalContainer);
-      });
-    }
+      </div>
+    `;
+    
+    const modalContainer = document.createElement('div');
+    modalContainer.innerHTML = modalHtml;
+    document.body.appendChild(modalContainer);
+    
+    const modal = new bootstrap.Modal(document.getElementById('monitoringModal'));
+    modal.show();
+    
+    // Remove modal from DOM after it's hidden
+    document.getElementById('monitoringModal').addEventListener('hidden.bs.modal', function() {
+      document.body.removeChild(modalContainer);
+    });
+  }
 
-    function editMonitoringEntry(index) {
-      const entry = ecoData.monitoring[index];
-      
-      // Fill the form with entry data
-      document.getElementById("monitoringDate").value = entry.date;
-      document.getElementById("monitoringObserver").value = entry.observer;
-      document.getElementById("monitoringArea").value = entry.area || '';
-      document.getElementById("monitoringWeather").value = entry.weather || '';
-      document.getElementById("monitoringNotes").value = entry.notes;
-      
-      // Remove the entry from the array
+  // Edit monitoring entry
+  function editMonitoringEntry(index) {
+    const entry = ecoData.monitoring[index];
+    
+    // Fill the form with entry data
+    document.getElementById("monitoringDate").value = entry.date;
+    document.getElementById("monitoringObserver").value = entry.observer;
+    document.getElementById("monitoringArea").value = entry.area || '';
+    document.getElementById("monitoringWeather").value = entry.weather || '';
+    document.getElementById("monitoringNotes").value = entry.notes;
+    
+    // Remove the entry from the array
+    ecoData.monitoring.splice(index, 1);
+    saveData();
+    renderMonitoringEntries();
+    
+    // Scroll to form and switch tab
+    bootstrap.Tab.getInstance(document.querySelector('#monitoring-tab')).show();
+    document.getElementById("monitoringForm").scrollIntoView({ behavior: 'smooth' });
+    
+    showToast('Monitoring entry loaded for editing', 'info');
+  }
+
+  function deleteMonitoringEntry(index) {
+    const modal = new bootstrap.Modal(document.createElement('div'));
+    modal._element.innerHTML = `
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Confirm Delete</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <p>Are you sure you want to delete this monitoring record?</p>
+            <p class="text-danger">This action cannot be undone.</p>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-danger" data-bs-dismiss="modal" id="confirmDeleteMonitoring">Delete</button>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(modal._element);
+    modal.show();
+    
+    document.getElementById('confirmDeleteMonitoring').addEventListener('click', function() {
       ecoData.monitoring.splice(index, 1);
       saveData();
       renderMonitoringEntries();
-      
-      // Scroll to form
-      document.getElementById("monitoringForm").scrollIntoView({ behavior: 'smooth' });
-      
-      // Close the modal
-      bootstrap.Modal.getInstance(document.getElementById('monitoringModal')).hide();
-    }
+      showToast('Monitoring entry deleted', 'success');
+    });
+    
+    // Clean up modal after close
+    modal._element.addEventListener('hidden.bs.modal', function() {
+      document.body.removeChild(modal._element);
+    });
+  }
 
-    function deleteMonitoringEntry(index) {
-      if (confirm("Delete this monitoring record?")) {
-        ecoData.monitoring.splice(index, 1);
-        saveData();
-        renderMonitoringEntries();
-        showToast("Monitoring record deleted", "success");
-      }
-    }
-
-    // Generate reports
-    function generateReport() {
-      const report = [];
-      const today = new Date().toISOString().split('T')[0];
-      
-      // Header
-      report.push(`
-        <div class="report-header mb-4">
-          <div class="d-flex justify-content-between align-items-center">
-            <div>
-              <h3>Ecosystem Maintenance Report</h3>
-              <p class="text-muted">Generated on ${today}</p>
-              ${ecoData.settings.site.name ? `<h4>${ecoData.settings.site.name}</h4>` : ''}
-              ${ecoData.settings.site.location ? `<p><i class="bi bi-geo-alt"></i> ${ecoData.settings.site.location}</p>` : ''}
-            </div>
-            <div class="text-end">
-              <img src="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌱</text></svg>" 
-                width="60" height="60" class="mb-2">
-              <p class="mb-0"><strong>EcoMaintain</strong></p>
-              <small class="text-muted">Native Ecosystem Maintenance Tool</small>
-            </div>
+  // Generate reports with more options
+  function generateReport() {
+    const report = [];
+    const today = new Date().toISOString().split('T')[0];
+    
+    // Header
+    report.push(`
+      <div class="report-header mb-4">
+        <div class="d-flex justify-content-between align-items-center">
+          <div>
+            <h3>Ecosystem Maintenance Report</h3>
+            <p class="text-muted">Generated on ${today}</p>
+            ${ecoData.settings.site.name ? `<h4>${ecoData.settings.site.name}</h4>` : ''}
+            ${ecoData.settings.site.location ? `<p><i class="bi bi-geo-alt"></i> ${ecoData.settings.site.location}</p>` : ''}
           </div>
-          <hr>
+          <div class="text-end">
+            ${ecoData.settings.user.name ? `<p><strong>Prepared by:</strong> ${ecoData.settings.user.name}</p>` : ''}
+            ${ecoData.settings.user.role ? `<p><strong>Role:</strong> ${ecoData.settings.user.role}</p>` : ''}
+          </div>
         </div>
-      `);
-      
-      // Summary Stats
-      report.push(`
-        <div class="row mb-4">
-          <div class="col-md-3">
-            <div class="card bg-light">
-              <div class="card-body text-center">
-                <h5 class="card-title">Assessments</h5>
-                <h2 class="card-text">${ecoData.assessments.length}</h2>
-                <small>Last: ${ecoData.assessments.length > 0 
-                  ? [...ecoData.assessments].sort((a, b) => new Date(b.date) - new Date(a.date))[0].date 
-                  : 'Never'}</small>
-              </div>
-            </div>
-          </div>
-          <div class="col-md-3">
-            <div class="card bg-light">
-              <div class="card-body text-center">
-                <h5 class="card-title">Tasks</h5>
-                <h2 class="card-text">${ecoData.maintenance.length}</h2>
-                <small>${ecoData.maintenance.filter(t => t.done).length} completed</small>
-              </div>
-            </div>
-          </div>
-          <div class="col-md-3">
-            <div class="card bg-light">
-              <div class="card-body text-center">
-                <h5 class="card-title">Species</h5>
-                <h2 class="card-text">${ecoData.species.length}</h2>
-                <small>${ecoData.species.filter(s => s.type === "Native").length} native</small>
-              </div>
-            </div>
-          </div>
-          <div class="col-md-3">
-            <div class="card bg-light">
-              <div class="card-body text-center">
-                <h5 class="card-title">Monitoring</h5>
-                <h2 class="card-text">${ecoData.monitoring.length}</h2>
-                <small>Last: ${ecoData.monitoring.length > 0 
-                  ? [...ecoData.monitoring].sort((a, b) => new Date(b.date) - new Date(a.date))[0].date 
-                  : 'Never'}</small>
-              </div>
+        <hr>
+      </div>
+    `);
+    
+    // Summary Stats
+    report.push(`
+      <div class="row mb-4">
+        <div class="col-md-3">
+          <div class="card bg-light">
+            <div class="card-body text-center">
+              <h5 class="card-title">Assessments</h5>
+              <h2 class="card-text">${ecoData.assessments.length}</h2>
+              ${ecoData.assessments.length > 0 ? `
+                <small>Last: ${[...ecoData.assessments].sort((a, b) => new Date(b.date) - new Date(a.date))[0].date}</small>
+              ` : ''}
             </div>
           </div>
         </div>
-      `);
+        <div class="col-md-3">
+          <div class="card bg-light">
+            <div class="card-body text-center">
+              <h5 class="card-title">Tasks</h5>
+              <h2 class="card-text">${ecoData.maintenance.length}</h2>
+              <small>${ecoData.maintenance.filter(t => t.done).length} completed</small>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="card bg-light">
+            <div class="card-body text-center">
+              <h5 class="card-title">Species</h5>
+              <h2 class="card-text">${ecoData.species.length}</h2>
+              <small>${ecoData.species.filter(s => s.type === 'Native').length} native</small>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="card bg-light">
+            <div class="card-body text-center">
+              <h5 class="card-title">Monitoring</h5>
+              <h2 class="card-text">${ecoData.monitoring.length}</h2>
+              ${ecoData.monitoring.length > 0 ? `
+                <small>Last: ${[...ecoData.monitoring].sort((a, b) => new Date(b.date) - new Date(a.date))[0].date}</small>
+              ` : ''}
+            </div>
+          </div>
+        </div>
+      </div>
+    `);
+    
+    // Site Assessments
+    report.push("<h4 class='mt-4'>Site Assessments</h4>");
+    if (ecoData.assessments.length) {
+      report.push("<div class='table-responsive'><table class='table table-sm'><thead><tr><th>Date</th><th>Assessor</th><th>Health</th><th>Threats</th></tr></thead><tbody>");
       
-      // Site Assessments
-      report.push("<h4 class='mt-4'>Site Assessments</h4>");
-      if (ecoData.assessments.length) {
-        report.push("<div class='table-responsive'><table class='table table-sm'><thead><tr><th>Date</th><th>Assessor</th><th>Health</th><th>Threats</th></tr></thead><tbody>");
-        ecoData.assessments.forEach(a => {
-          report.push(`
-            <tr>
-              <td>${a.date}</td>
-              <td>${a.assessor}</td>
-              <td><span class="badge ${getHealthBadgeClass(a.health)}">${a.health}</span></td>
-              <td>${a.threats?.join(', ') || 'None'}</td>
-            </tr>
-          `);
-        });
-        report.push("</tbody></table></div>");
-      } else {
-        report.push("<div class='alert alert-info'>No assessments recorded.</div>");
-      }
+      // Sort by date (newest first)
+      const sortedAssessments = [...ecoData.assessments].sort((a, b) => new Date(b.date) - new Date(a.date));
       
-      // Maintenance Tasks
-      report.push("<h4 class='mt-4'>Maintenance Tasks</h4>");
-      if (ecoData.maintenance.length) {
-        const completed = ecoData.maintenance.filter(t => t.done).length;
-        const pending = ecoData.maintenance.length - completed;
-        
+      sortedAssessments.forEach(a => {
         report.push(`
-          <div class="mb-3">
-            <div class="progress" style="height: 20px;">
-              <div class="progress-bar bg-success" role="progressbar" 
-                style="width: ${(completed / ecoData.maintenance.length) * 100}%" 
-                aria-valuenow="${completed}" aria-valuemin="0" aria-valuemax="${ecoData.maintenance.length}">
-                ${completed} completed
-              </div>
-              <div class="progress-bar bg-warning" role="progressbar" 
-                style="width: ${(pending / ecoData.maintenance.length) * 100}%" 
-                aria-valuenow="${pending}" aria-valuemin="0" aria-valuemax="${ecoData.maintenance.length}">
-                ${pending} pending
+          <tr>
+            <td>${a.date}</td>
+            <td>${a.assessor}</td>
+            <td><span class="badge ${getHealthBadgeClass(a.health)}">${a.health}</span></td>
+            <td>${a.threats?.join(', ') || 'None'}</td>
+          </tr>
+        `);
+      });
+      report.push("</tbody></table></div>");
+      
+      // Add health summary
+      const healthCounts = {};
+      ecoData.assessments.forEach(a => {
+        healthCounts[a.health] = (healthCounts[a.health] || 0) + 1;
+      });
+      
+      report.push("<h5 class='mt-3'>Health Summary</h5>");
+      report.push("<div class='row'>");
+      
+      Object.entries(healthCounts).forEach(([health, count]) => {
+        const percentage = Math.round((count / ecoData.assessments.length) * 100);
+        report.push(`
+          <div class="col-md-3 mb-3">
+            <div class="card">
+              <div class="card-body text-center">
+                <span class="badge ${getHealthBadgeClass(health)} mb-2">${health}</span>
+                <h4>${count}</h4>
+                <small>${percentage}% of assessments</small>
               </div>
             </div>
           </div>
         `);
-        
-        report.push("<div class='table-responsive'><table class='table table-sm'><thead><tr><th>Task</th><th>Category</th><th>Due</th><th>Status</th></tr></thead><tbody>");
-        ecoData.maintenance.forEach(t => {
-          report.push(`
-            <tr class="${t.done ? 'table-secondary' : ''}">
-              <td class="${t.done ? 'task-completed' : ''}">${t.name}</td>
-              <td>${t.category}</td>
-              <td>${t.due}</td>
-              <td><span class="badge ${t.done ? 'bg-success' : 'bg-warning'}">${t.done ? "Completed" : "Pending"}</span></td>
-            </tr>
-          `);
-        });
-        report.push("</tbody></table></div>");
-      } else {
-        report.push("<div class='alert alert-info'>No maintenance tasks added.</div>");
-      }
+      });
       
-      // Species
-      report.push("<h4 class='mt-4'>Species Register</h4>");
-      if (ecoData.species.length) {
-        const speciesByType = {};
-        ecoData.species.forEach(s => {
-          speciesByType[s.type] = (speciesByType[s.type] || 0) + 1;
-        });
-        
-        report.push("<div class='table-responsive'><table class='table table-sm'><thead><tr><th>Name</th><th>Type</th><th>Notes</th></tr></thead><tbody>");
-        ecoData.species.forEach(s => {
-          report.push(`
-            <tr>
-              <td>${s.name}</td>
-              <td><span class="badge species-badge ${getSpeciesBadgeClass(s.type)}">${s.type}</span></td>
-              <td>${s.notes || '-'}</td>
-            </tr>
-          `);
-        });
-        report.push("</tbody></table></div>");
-      } else {
-        report.push("<div class='alert alert-info'>No species recorded.</div>");
-      }
-      
-      // Monitoring
-      report.push("<h4 class='mt-4'>Monitoring Logs</h4>");
-      if (ecoData.monitoring.length) {
-        report.push("<div class='table-responsive'><table class='table table-sm'><thead><tr><th>Date</th><th>Observer</th><th>Location</th><th>Weather</th><th>Notes</th></tr></thead><tbody>");
-        ecoData.monitoring.forEach(m => {
-          report.push(`
-            <tr>
-              <td>${m.date}</td>
-              <td>${m.observer}</td>
-              <td>${m.area || '-'}</td>
-              <td>${m.weather || '-'}</td>
-              <td style="max-width: 300px; white-space: pre-wrap;">${m.notes || '-'}</td>
-            </tr>
-          `);
-        });
-        report.push("</tbody></table></div>");
-      } else {
-        report.push("<div class='alert alert-info'>No monitoring records yet.</div>");
-      }
-      
-      document.getElementById("reportContent").innerHTML = report.join("");
-      renderCharts();
-      showToast("Report generated successfully", "success");
+      report.push("</div>");
+    } else {
+      report.push("<div class='alert alert-info'>No assessments recorded.</div>");
     }
-
-    // Render charts for reports
-    function renderCharts() {
-      // Destroy existing charts if they exist
-      const chartIds = ['maintenanceChart', 'speciesChart', 'monitoringChart'];
-      chartIds.forEach(id => {
-        const chart = Chart.getChart(id);
-        if (chart) chart.destroy();
+    
+    // Maintenance Tasks
+    report.push("<h4 class='mt-4'>Maintenance Tasks</h4>");
+    if (ecoData.maintenance.length) {
+      const completed = ecoData.maintenance.filter(t => t.done).length;
+      const pending = ecoData.maintenance.length - completed;
+      
+      report.push(`
+        <div class="mb-3">
+          <div class="progress" style="height: 20px;">
+            <div class="progress-bar bg-success" role="progressbar" 
+              style="width: ${(completed / ecoData.maintenance.length) * 100}%" 
+              aria-valuenow="${completed}" aria-valuemin="0" aria-valuemax="${ecoData.maintenance.length}">
+              ${completed} completed
+            </div>
+            <div class="progress-bar bg-warning" role="progressbar" 
+              style="width: ${(pending / ecoData.maintenance.length) * 100}%" 
+              aria-valuenow="${pending}" aria-valuemin="0" aria-valuemax="${ecoData.maintenance.length}">
+              ${pending} pending
+            </div>
+          </div>
+        </div>
+      `);
+      
+      // Tasks by category
+      const tasksByCategory = {};
+      ecoData.maintenance.forEach(t => {
+        tasksByCategory[t.category] = (tasksByCategory[t.category] || 0) + 1;
       });
-
-      // 1. Enhanced Maintenance Tasks Chart (Doughnut with counts)
-      const done = ecoData.maintenance.filter(t => t.done).length;
-      const pending = ecoData.maintenance.length - done;
-      new Chart(document.getElementById("maintenanceChart"), {
-        type: "doughnut",
-        data: {
-          labels: ["Completed", "Pending"],
-          datasets: [{
-            data: [done, pending],
-            backgroundColor: ["#28a745", "#ffc107"],
-            borderWidth: 1
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            title: { 
-              display: true, 
-              text: "Maintenance Task Status", 
-              font: { size: 14 },
-              padding: { bottom: 10 }
-            },
-            legend: { 
-              position: 'right',
-              labels: {
-                boxWidth: 12,
-                padding: 20
-              }
-            },
-            tooltip: {
-              callbacks: {
-                label: function(context) {
-                  const label = context.label || '';
-                  const value = context.raw || 0;
-                  const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                  const percentage = Math.round((value / total) * 100);
-                  return `${label}: ${value} (${percentage}%)`;
-                }
-              }
-            }
-          },
-          cutout: '65%'
-        }
+      
+      report.push("<h5 class='mt-3'>Tasks by Category</h5>");
+      report.push("<div class='row'>");
+      
+      Object.entries(tasksByCategory).forEach(([category, count]) => {
+        report.push(`
+          <div class="col-md-3 mb-3">
+            <div class="card">
+              <div class="card-body text-center">
+                <h5>${category}</h5>
+                <h3>${count}</h3>
+                <small>${Math.round((count / ecoData.maintenance.length) * 100)}% of tasks</small>
+              </div>
+            </div>
+          </div>
+        `);
       });
-
-      // 2. Enhanced Species Types Chart (Horizontal Bar)
-      const speciesTypes = {};
+      
+      report.push("</div>");
+      
+      // Task list
+      report.push("<h5 class='mt-3'>Task Details</h5>");
+      report.push("<div class='table-responsive'><table class='table table-sm'><thead><tr><th>Task</th><th>Category</th><th>Due</th><th>Status</th></tr></thead><tbody>");
+      
+      // Sort by due date
+      const sortedTasks = [...ecoData.maintenance].sort((a, b) => new Date(a.due) - new Date(b.due));
+      
+      sortedTasks.forEach(t => {
+        report.push(`
+          <tr class="${t.done ? 'table-secondary' : ''}">
+            <td class="${t.done ? 'task-completed' : ''}">${t.name}</td>
+            <td>${t.category}</td>
+            <td>${t.due}</td>
+            <td><span class="badge ${t.done ? 'bg-success' : 'bg-warning'}">${t.done ? "Completed" : "Pending"}</span></td>
+          </tr>
+        `);
+      });
+      report.push("</tbody></table></div>");
+    } else {
+      report.push("<div class='alert alert-info'>No maintenance tasks added.</div>");
+    }
+    
+    // Species
+    report.push("<h4 class='mt-4'>Species Register</h4>");
+    if (ecoData.species.length) {
+      const speciesByType = {};
       ecoData.species.forEach(s => {
-        speciesTypes[s.type] = (speciesTypes[s.type] || 0) + 1;
+        speciesByType[s.type] = (speciesByType[s.type] || 0) + 1;
       });
       
-      // Sort by count descending
-      const sortedSpecies = Object.entries(speciesTypes)
-        .sort((a, b) => b[1] - a[1]);
+      // Species distribution
+      report.push("<h5 class='mt-3'>Species Distribution</h5>");
+      report.push("<div class='row'>");
       
-      const speciesColors = {
-        'Native': '#28a745',
-        'Weed': '#dc3545',
-        'Introduced': '#fd7e14',
-        'Unknown': '#6c757d'
-      };
+      Object.entries(speciesByType).forEach(([type, count]) => {
+        report.push(`
+          <div class="col-md-3 mb-3">
+            <div class="card">
+              <div class="card-body text-center">
+                <span class="badge species-badge ${getSpeciesBadgeClass(type)} mb-2">${type}</span>
+                <h3>${count}</h3>
+                <small>${Math.round((count / ecoData.species.length) * 100)}% of species</small>
+              </div>
+            </div>
+          </div>
+        `);
+      });
       
-      new Chart(document.getElementById("speciesChart"), {
-        type: "bar",
+      report.push("</div>");
+      
+      // Species list
+      report.push("<h5 class='mt-3'>Species List</h5>");
+      report.push("<div class='table-responsive'><table class='table table-sm'><thead><tr><th>Name</th><th>Type</th><th>Notes</th></tr></thead><tbody>");
+      
+      // Sort alphabetically
+      const sortedSpecies = [...ecoData.species].sort((a, b) => a.name.localeCompare(b.name));
+      
+      sortedSpecies.forEach(s => {
+        report.push(`
+          <tr>
+            <td>${s.name}</td>
+            <td><span class="badge species-badge ${getSpeciesBadgeClass(s.type)}">${s.type}</span></td>
+            <td>${s.notes || '-'}</td>
+          </tr>
+        `);
+      });
+      report.push("</tbody></table></div>");
+    } else {
+      report.push("<div class='alert alert-info'>No species recorded.</div>");
+    }
+    
+    // Monitoring
+    report.push("<h4 class='mt-4'>Monitoring Logs</h4>");
+    if (ecoData.monitoring.length) {
+      // Monitoring frequency
+      const monitoringByMonth = {};
+      ecoData.monitoring.forEach(m => {
+        const month = m.date.substring(0, 7); // YYYY-MM
+        monitoringByMonth[month] = (monitoringByMonth[month] || 0) + 1;
+      });
+      
+      const sortedMonths = Object.keys(monitoringByMonth).sort();
+      
+      report.push("<h5 class='mt-3'>Monitoring Frequency</h5>");
+      report.push("<div class='row'>");
+      
+      sortedMonths.forEach(month => {
+        report.push(`
+          <div class="col-md-2 mb-3">
+            <div class="card">
+              <div class="card-body text-center">
+                <h5>${month}</h5>
+                <h3>${monitoringByMonth[month]}</h3>
+                <small>entries</small>
+              </div>
+            </div>
+          </div>
+        `);
+      });
+      
+      report.push("</div>");
+      
+      // Monitoring list
+      report.push("<h5 class='mt-3'>Monitoring Details</h5>");
+      report.push("<div class='table-responsive'><table class='table table-sm'><thead><tr><th>Date</th><th>Observer</th><th>Location</th><th>Weather</th><th>Notes</th></tr></thead><tbody>");
+      
+      // Sort by date (newest first)
+      const sortedMonitoring = [...ecoData.monitoring].sort((a, b) => new Date(b.date) - new Date(a.date));
+      
+      sortedMonitoring.forEach(m => {
+        report.push(`
+          <tr>
+            <td>${m.date}</td>
+            <td>${m.observer}</td>
+            <td>${m.area || '-'}</td>
+            <td>${m.weather || '-'}</td>
+            <td style="max-width: 300px; white-space: pre-wrap;">${m.notes || '-'}</td>
+          </tr>
+        `);
+      });
+      report.push("</tbody></table></div>");
+    } else {
+      report.push("<div class='alert alert-info'>No monitoring records yet.</div>");
+    }
+    
+    document.getElementById("reportContent").innerHTML = report.join("");
+    
+    // Render charts for the report
+    renderCharts();
+    
+    showToast('Report generated successfully', 'success');
+  }
+
+  // Render charts for the report
+  function renderCharts() {
+    // Destroy existing charts if they exist
+    const chartIds = ['maintenanceChart', 'speciesChart', 'monitoringChart'];
+    chartIds.forEach(id => {
+      const chart = Chart.getChart(id);
+      if (chart) chart.destroy();
+    });
+
+    // Maintenance Tasks Chart
+    if (ecoData.maintenance.length > 0) {
+      const ctx = document.getElementById('maintenanceChart').getContext('2d');
+      const completed = ecoData.maintenance.filter(t => t.done).length;
+      const pending = ecoData.maintenance.length - completed;
+      
+      new Chart(ctx, {
+        type: 'doughnut',
         data: {
-          labels: sortedSpecies.map(s => s[0]),
+          labels: ['Completed', 'Pending'],
           datasets: [{
-            label: "Species Count",
-            data: sortedSpecies.map(s => s[1]),
-            backgroundColor: sortedSpecies.map(s => speciesColors[s[0]] || '#007bff'),
+            data: [completed, pending],
+            backgroundColor: ['#28a745', '#ffc107'],
             borderWidth: 1
           }]
         },
         options: {
-          indexAxis: 'y',
           responsive: true,
-          maintainAspectRatio: false,
           plugins: {
-            title: { 
-              display: true, 
-              text: "Species by Type", 
-              font: { size: 14 },
-              padding: { bottom: 10 }
+            legend: {
+              position: 'bottom',
             },
-            legend: { display: false }
-          },
-          scales: {
-            x: {
-              beginAtZero: true,
-              ticks: {
-                precision: 0
-              }
+            title: {
+              display: true,
+              text: 'Task Completion'
             }
           }
         }
       });
+    }
 
-      // 3. Enhanced Monitoring Over Time (Line with points)
-      const dateCounts = {};
-      ecoData.monitoring.forEach(m => {
-        dateCounts[m.date] = (dateCounts[m.date] || 0) + 1;
+    // Species Distribution Chart
+    if (ecoData.species.length > 0) {
+      const ctx = document.getElementById('speciesChart').getContext('2d');
+      const speciesCounts = {};
+      
+      ecoData.species.forEach(s => {
+        speciesCounts[s.type] = (speciesCounts[s.type] || 0) + 1;
       });
       
-      // Sort dates chronologically
-      const sortedDates = Object.keys(dateCounts).sort((a, b) => new Date(a) - new Date(b));
+      const labels = Object.keys(speciesCounts);
+      const data = Object.values(speciesCounts);
+      const backgroundColors = labels.map(type => {
+        switch(type.toLowerCase()) {
+          case 'native': return '#28a745';
+          case 'weed': return '#dc3545';
+          case 'introduced': return '#fd7e14';
+          default: return '#6c757d';
+        }
+      });
       
-      new Chart(document.getElementById("monitoringChart"), {
-        type: "line",
+      new Chart(ctx, {
+        type: 'bar',
         data: {
-          labels: sortedDates,
+          labels: labels,
           datasets: [{
-            label: "Monitoring Entries",
-            data: sortedDates.map(d => dateCounts[d]),
-            fill: true,
-            borderColor: "#6610f2",
-            backgroundColor: "rgba(102, 16, 242, 0.2)",
-            tension: 0.3,
-            pointBackgroundColor: "#6610f2",
-            pointRadius: 5,
-            pointHoverRadius: 7
+            label: 'Species Count',
+            data: data,
+            backgroundColor: backgroundColors,
+            borderWidth: 1
           }]
         },
         options: {
           responsive: true,
-          maintainAspectRatio: false,
           plugins: {
-            title: { 
-              display: true, 
-              text: "Monitoring Activity Over Time", 
-              font: { size: 14 },
-              padding: { bottom: 10 }
+            legend: {
+              display: false
             },
-            legend: { display: false }
+            title: {
+              display: true,
+              text: 'Species Distribution'
+            }
           },
           scales: {
             y: {
@@ -4430,377 +4672,450 @@
       });
     }
 
-    // Export data to CSV
-    function exportToCSV() {
-      let csvContent = "data:text/csv;charset=utf-8,";
+    // Monitoring Activity Chart
+    if (ecoData.monitoring.length > 0) {
+      const ctx = document.getElementById('monitoringChart').getContext('2d');
+      const monitoringByMonth = {};
       
-      // Export assessments
-      csvContent += "Assessments\n";
-      csvContent += "Date,Assessor,Health,Threats,Description,Recommendations\n";
-      ecoData.assessments.forEach(a => {
-        csvContent += `${a.date},${a.assessor},${a.health},"${a.threats.join(', ')}","${(a.description || '').replace(/"/g, '""')}","${(a.recommendations || '').replace(/"/g, '""')}"\n`;
-      });
-      
-      // Export maintenance tasks
-      csvContent += "\nMaintenance Tasks\n";
-      csvContent += "Task,Category,Due Date,Status,Notes\n";
-      ecoData.maintenance.forEach(t => {
-        csvContent += `${t.name},${t.category},${t.due},${t.done ? 'Completed' : 'Pending'},"${(t.notes || '').replace(/"/g, '""')}"\n`;
-      });
-      
-      // Export species
-      csvContent += "\nSpecies\n";
-      csvContent += "Name,Type,Notes\n";
-      ecoData.species.forEach(s => {
-        csvContent += `${s.name},${s.type},"${(s.notes || '').replace(/"/g, '""')}"\n`;
-      });
-      
-      // Export monitoring
-      csvContent += "\nMonitoring\n";
-      csvContent += "Date,Observer,Location,Weather,Notes\n";
       ecoData.monitoring.forEach(m => {
-        csvContent += `${m.date},${m.observer},${m.area || ''},${m.weather || ''},"${(m.notes || '').replace(/"/g, '""')}"\n`;
+        const month = m.date.substring(0, 7); // YYYY-MM
+        monitoringByMonth[month] = (monitoringByMonth[month] || 0) + 1;
       });
       
-      // Create download link
-      const encodedUri = encodeURI(csvContent);
-      const link = document.createElement("a");
-      link.setAttribute("href", encodedUri);
-      link.setAttribute("download", `ecosystem_report_${new Date().toISOString().split('T')[0]}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      const sortedMonths = Object.keys(monitoringByMonth).sort();
+      const counts = sortedMonths.map(month => monitoringByMonth[month]);
       
-      showToast("CSV exported successfully", "success");
+      new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: sortedMonths,
+          datasets: [{
+            label: 'Monitoring Entries',
+            data: counts,
+            fill: false,
+            backgroundColor: '#007bff',
+            borderColor: '#007bff',
+            tension: 0.1
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: {
+              display: false
+            },
+            title: {
+              display: true,
+              text: 'Monitoring Activity Over Time'
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              ticks: {
+                precision: 0
+              }
+            }
+          }
+        }
+      });
     }
+  }
 
-    // Export report to PDF
-    function exportToPDF() {
-      const { jsPDF } = window.jspdf;
-      const doc = new jsPDF();
-      
-      // Add title
-      doc.setFontSize(20);
-      doc.text("Ecosystem Maintenance Report", 105, 15, { align: 'center' });
-      
-      // Add date
+  // Export data to CSV
+  function exportToCSV() {
+    let csvContent = "data:text/csv;charset=utf-8,";
+    
+    // Export assessments
+    csvContent += "Assessments\n";
+    csvContent += "Date,Assessor,Health,Threats,Description,Recommendations\n";
+    ecoData.assessments.forEach(a => {
+      csvContent += `${a.date},${a.assessor},${a.health},"${(a.threats || []).join(', ')}","${a.description || ''}","${a.recommendations || ''}"\n`;
+    });
+    
+    // Export maintenance tasks
+    csvContent += "\nMaintenance Tasks\n";
+    csvContent += "Name,Category,Due,Done,Notes\n";
+    ecoData.maintenance.forEach(t => {
+      csvContent += `${t.name},${t.category},${t.due},${t.done},"${t.notes || ''}"\n`;
+    });
+    
+    // Export species
+    csvContent += "\nSpecies\n";
+    csvContent += "Name,Type,Notes\n";
+    ecoData.species.forEach(s => {
+      csvContent += `${s.name},${s.type},"${s.notes || ''}"\n`;
+    });
+    
+    // Export monitoring
+    csvContent += "\nMonitoring\n";
+    csvContent += "Date,Observer,Area,Weather,Notes\n";
+    ecoData.monitoring.forEach(m => {
+      csvContent += `${m.date},${m.observer},${m.area || ''},${m.weather || ''},"${m.notes || ''}"\n`;
+    });
+    
+    // Create download link
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `ecosystem_data_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    showToast('Data exported to CSV successfully', 'success');
+  }
+
+  // Export report to PDF
+  function exportToPDF() {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF('p', 'pt', 'a4');
+    
+    // Add title
+    doc.setFontSize(20);
+    doc.text('Ecosystem Maintenance Report', 40, 40);
+    
+    // Add date
+    doc.setFontSize(12);
+    const today = new Date().toISOString().split('T')[0];
+    doc.text(`Generated on: ${today}`, 40, 60);
+    
+    // Add site information if available
+    if (ecoData.settings.site.name) {
+      doc.setFontSize(14);
+      doc.text(`Site: ${ecoData.settings.site.name}`, 40, 80);
+    }
+    if (ecoData.settings.site.location) {
+      doc.text(`Location: ${ecoData.settings.site.location}`, 40, 100);
+    }
+    
+    // Add summary statistics
+    doc.setFontSize(12);
+    doc.text('Summary Statistics', 40, 140);
+    doc.setFontSize(10);
+    
+    let yPosition = 160;
+    doc.text(`Assessments: ${ecoData.assessments.length}`, 40, yPosition);
+    yPosition += 20;
+    doc.text(`Maintenance Tasks: ${ecoData.maintenance.length} (${ecoData.maintenance.filter(t => t.done).length} completed)`, 40, yPosition);
+    yPosition += 20;
+    doc.text(`Species: ${ecoData.species.length} (${ecoData.species.filter(s => s.type === 'Native').length} native)`, 40, yPosition);
+    yPosition += 20;
+    doc.text(`Monitoring Entries: ${ecoData.monitoring.length}`, 40, yPosition);
+    
+    // Add charts (simplified versions)
+    yPosition += 40;
+    if (ecoData.maintenance.length > 0) {
       doc.setFontSize(12);
-      const today = new Date().toLocaleDateString();
-      doc.text(`Generated on ${today}`, 105, 22, { align: 'center' });
+      doc.text('Maintenance Task Status', 40, yPosition);
+      yPosition += 20;
       
-      // Add site info if available
-      if (ecoData.settings.site.name) {
-        doc.setFontSize(14);
-        doc.text(ecoData.settings.site.name, 105, 30, { align: 'center' });
-      }
+      const completed = ecoData.maintenance.filter(t => t.done).length;
+      const pending = ecoData.maintenance.length - completed;
       
-      if (ecoData.settings.site.location) {
-        doc.setFontSize(12);
-        doc.text(ecoData.settings.site.location, 105, 36, { align: 'center' });
-      }
-      
-      // Add prepared by if available
-      if (ecoData.settings.user.name) {
-        doc.setFontSize(10);
-        doc.text(`Prepared by: ${ecoData.settings.user.name}`, 105, 44, { align: 'center' });
-      }
-      
-      // Add summary stats
-      doc.setFontSize(12);
-      doc.text("Summary Statistics", 14, 54);
-      doc.line(14, 56, 60, 56);
-      
-      let yPosition = 64;
-      
-      // Assessments
       doc.setFontSize(10);
-      doc.text("Assessments:", 14, yPosition);
-      doc.text(ecoData.assessments.length.toString(), 50, yPosition);
-      
-      // Maintenance
-      yPosition += 7;
-      doc.text("Maintenance Tasks:", 14, yPosition);
-      doc.text(ecoData.maintenance.length.toString(), 50, yPosition);
-      doc.text(`(${ecoData.maintenance.filter(t => t.done).length} completed)`, 60, yPosition);
-      
-      // Species
-      yPosition += 7;
-      doc.text("Species:", 14, yPosition);
-      doc.text(ecoData.species.length.toString(), 50, yPosition);
-      doc.text(`(${ecoData.species.filter(s => s.type === "Native").length} native)`, 60, yPosition);
-      
-      // Monitoring
-      yPosition += 7;
-      doc.text("Monitoring Entries:", 14, yPosition);
-      doc.text(ecoData.monitoring.length.toString(), 50, yPosition);
-      
-      // Add charts (simplified versions for PDF)
-      yPosition += 15;
+      doc.text(`Completed: ${completed} (${Math.round((completed / ecoData.maintenance.length) * 100)}%)`, 60, yPosition);
+      yPosition += 20;
+      doc.text(`Pending: ${pending} (${Math.round((pending / ecoData.maintenance.length) * 100)}%)`, 60, yPosition);
+      yPosition += 30;
+    }
+    
+    if (ecoData.species.length > 0) {
       doc.setFontSize(12);
-      doc.text("Maintenance Task Status", 14, yPosition);
-      doc.setFontSize(10);
-      yPosition += 7;
-      doc.text(`Completed: ${ecoData.maintenance.filter(t => t.done).length}`, 14, yPosition);
-      yPosition += 7;
-      doc.text(`Pending: ${ecoData.maintenance.length - ecoData.maintenance.filter(t => t.done).length}`, 14, yPosition);
+      doc.text('Species Distribution', 40, yPosition);
+      yPosition += 20;
       
-      yPosition += 15;
-      doc.setFontSize(12);
-      doc.text("Species Distribution", 14, yPosition);
-      doc.setFontSize(10);
-      
-      const speciesTypes = {};
+      const speciesCounts = {};
       ecoData.species.forEach(s => {
-        speciesTypes[s.type] = (speciesTypes[s.type] || 0) + 1;
+        speciesCounts[s.type] = (speciesCounts[s.type] || 0) + 1;
       });
       
-      Object.entries(speciesTypes).forEach(([type, count]) => {
-        yPosition += 7;
-        doc.text(`${type}: ${count}`, 14, yPosition);
+      doc.setFontSize(10);
+      Object.entries(speciesCounts).forEach(([type, count]) => {
+        doc.text(`${type}: ${count} (${Math.round((count / ecoData.species.length) * 100)}%)`, 60, yPosition);
+        yPosition += 20;
       });
-      
-      // Save the PDF
-      doc.save(`ecosystem_report_${new Date().toISOString().split('T')[0]}.pdf`);
-      showToast("PDF exported successfully", "success");
+      yPosition += 10;
     }
-
-    // Export all data as JSON
-    function exportAllData() {
-      const dataStr = JSON.stringify(ecoData, null, 2);
-      const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+    
+    // Add detailed data sections
+    doc.addPage();
+    yPosition = 40;
+    
+    // Assessments
+    if (ecoData.assessments.length > 0) {
+      doc.setFontSize(14);
+      doc.text('Site Assessments', 40, yPosition);
+      yPosition += 20;
       
-      const exportName = `ecosystem_data_${new Date().toISOString().split('T')[0]}.json`;
-      
-      const linkElement = document.createElement('a');
-      linkElement.setAttribute('href', dataUri);
-      linkElement.setAttribute('download', exportName);
-      linkElement.click();
-      
-      showToast("All data exported successfully", "success");
+      doc.setFontSize(10);
+      ecoData.assessments.forEach(a => {
+        doc.text(`${a.date} - ${a.assessor} (${a.health})`, 40, yPosition);
+        yPosition += 15;
+        doc.text(`Threats: ${(a.threats || []).join(', ') || 'None'}`, 60, yPosition);
+        yPosition += 15;
+        
+        if (yPosition > doc.internal.pageSize.height - 40) {
+          doc.addPage();
+          yPosition = 40;
+        }
+      });
+      yPosition += 20;
     }
-
-    // Initialize the application
-    document.addEventListener("DOMContentLoaded", function () {
-      loadData();
-      initDashboardMap();
+    
+    // Maintenance Tasks
+    if (ecoData.maintenance.length > 0) {
+      doc.setFontSize(14);
+      doc.text('Maintenance Tasks', 40, yPosition);
+      yPosition += 20;
       
-      // Initialize all data tables
+      doc.setFontSize(10);
+      ecoData.maintenance.forEach(t => {
+        const status = t.done ? 'Completed' : 'Pending';
+        doc.text(`${t.name} (${t.category}) - Due: ${t.due} - ${status}`, 40, yPosition);
+        yPosition += 15;
+        
+        if (yPosition > doc.internal.pageSize.height - 40) {
+          doc.addPage();
+          yPosition = 40;
+        }
+      });
+      yPosition += 20;
+    }
+    
+    // Save the PDF
+    doc.save(`ecosystem_report_${today}.pdf`);
+    showToast('Report exported to PDF successfully', 'success');
+  }
+
+  // Export all data as JSON
+  function exportAllData() {
+    const dataStr = JSON.stringify(ecoData, null, 2);
+    const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+    
+    const exportName = `ecosystem_data_${new Date().toISOString().split('T')[0]}.json`;
+    
+    const linkElement = document.createElement('a');
+    linkElement.setAttribute('href', dataUri);
+    linkElement.setAttribute('download', exportName);
+    linkElement.click();
+    
+    showToast('All data exported as JSON', 'success');
+  }
+
+  // Initialize the application
+  document.addEventListener("DOMContentLoaded", function() {
+    loadData();
+    initDashboardMap();
+    
+    // Initialize all data tables
+    renderAssessments();
+    renderMaintenanceTasks();
+    renderSpeciesList();
+    renderMonitoringEntries();
+    
+    // Set up form submissions
+    document.getElementById("assessmentForm").addEventListener("submit", function(e) {
+      e.preventDefault();
+      if (!validateForm(this)) return;
+      
+      const newAssessment = {
+        date: document.getElementById("assessmentDate").value,
+        assessor: document.getElementById("assessorName").value,
+        description: document.getElementById("siteDescription").value,
+        health: document.getElementById("ecosystemHealth").value,
+        threats: Array.from(document.getElementById("threats").selectedOptions).map(o => o.value),
+        recommendations: document.getElementById("recommendations").value || undefined
+      };
+      
+      ecoData.assessments.push(newAssessment);
+      saveData();
       renderAssessments();
+      updateRecentActivity();
+      this.reset();
+    });
+    
+    document.getElementById("maintenanceForm").addEventListener("submit", function(e) {
+      e.preventDefault();
+      if (!validateForm(this)) return;
+      
+      const newTask = {
+        name: document.getElementById("taskName").value,
+        category: document.getElementById("taskCategory").value,
+        due: document.getElementById("taskDueDate").value,
+        notes: document.getElementById("taskNotes").value || undefined,
+        done: false
+      };
+      
+      ecoData.maintenance.push(newTask);
+      saveData();
       renderMaintenanceTasks();
+      updateUpcomingTasks();
+      this.reset();
+    });
+    
+    document.getElementById("speciesForm").addEventListener("submit", function(e) {
+      e.preventDefault();
+      if (!validateForm(this)) return;
+      
+      const newSpecies = {
+        name: document.getElementById("speciesName").value,
+        type: document.getElementById("speciesType").value,
+        notes: document.getElementById("speciesNotes").value || undefined
+      };
+      
+      ecoData.species.push(newSpecies);
+      saveData();
       renderSpeciesList();
+      this.reset();
+    });
+    
+    document.getElementById("monitoringForm").addEventListener("submit", function(e) {
+      e.preventDefault();
+      if (!validateForm(this)) return;
+      
+      const newMonitoring = {
+        date: document.getElementById("monitoringDate").value,
+        observer: document.getElementById("monitoringObserver").value,
+        area: document.getElementById("monitoringArea").value || undefined,
+        weather: document.getElementById("monitoringWeather").value || undefined,
+        notes: document.getElementById("monitoringNotes").value
+      };
+      
+      ecoData.monitoring.push(newMonitoring);
+      saveData();
       renderMonitoringEntries();
-      
-      // Set up pagination event listeners
-      document.getElementById("prevAssessmentPage").addEventListener("click", function() {
-        if (paginationConfig.assessments.currentPage > 1) {
-          paginationConfig.assessments.currentPage--;
-          renderAssessments();
-        }
-      });
-      
-      document.getElementById("nextAssessmentPage").addEventListener("click", function() {
-        const { currentPage, pageSize } = paginationConfig.assessments;
-        const filteredCount = searchTerms.assessments 
-          ? ecoData.assessments.filter(a => 
-              a.assessor.toLowerCase().includes(searchTerms.assessments.toLowerCase()) ||
-              a.description.toLowerCase().includes(searchTerms.assessments.toLowerCase()) ||
-              a.health.toLowerCase().includes(searchTerms.assessments.toLowerCase()) ||
-              a.threats.some(t => t.toLowerCase().includes(searchTerms.assessments.toLowerCase()))
-            ).length
-          : ecoData.assessments.length;
-        
-        if (currentPage * pageSize < filteredCount) {
-          paginationConfig.assessments.currentPage++;
-          renderAssessments();
-        }
-      });
-      
-      document.getElementById("prevTaskPage").addEventListener("click", function() {
-        if (paginationConfig.maintenance.currentPage > 1) {
-          paginationConfig.maintenance.currentPage--;
-          renderMaintenanceTasks();
-        }
-      });
-      
-      document.getElementById("nextTaskPage").addEventListener("click", function() {
-        const { currentPage, pageSize } = paginationConfig.maintenance;
-        const filteredCount = filterStates.maintenance === "all" 
-          ? ecoData.maintenance.length
-          : filterStates.maintenance === "pending"
-            ? ecoData.maintenance.filter(t => !t.done).length
-            : ecoData.maintenance.filter(t => t.done).length;
-        
-        if (currentPage * pageSize < filteredCount) {
-          paginationConfig.maintenance.currentPage++;
-          renderMaintenanceTasks();
-        }
-      });
-      
-      document.getElementById("prevSpeciesPage").addEventListener("click", function() {
-        if (paginationConfig.species.currentPage > 1) {
-          paginationConfig.species.currentPage--;
-          renderSpeciesList();
-        }
-      });
-      
-      document.getElementById("nextSpeciesPage").addEventListener("click", function() {
-        const { currentPage, pageSize } = paginationConfig.species;
-        const filteredCount = filterStates.species === "all" 
-          ? ecoData.species.length
-          : filterStates.species === "native"
-            ? ecoData.species.filter(s => s.type === "Native").length
-            : ecoData.species.filter(s => s.type === "Weed").length;
-        
-        if (currentPage * pageSize < filteredCount) {
-          paginationConfig.species.currentPage++;
-          renderSpeciesList();
-        }
-      });
-      
-      document.getElementById("prevMonitoringPage").addEventListener("click", function() {
-        if (paginationConfig.monitoring.currentPage > 1) {
-          paginationConfig.monitoring.currentPage--;
-          renderMonitoringEntries();
-        }
-      });
-      
-      document.getElementById("nextMonitoringPage").addEventListener("click", function() {
-        const { currentPage, pageSize } = paginationConfig.monitoring;
-        const filteredCount = searchTerms.monitoring 
-          ? ecoData.monitoring.filter(m => 
-              m.observer.toLowerCase().includes(searchTerms.monitoring.toLowerCase()) ||
-              m.area.toLowerCase().includes(searchTerms.monitoring.toLowerCase()) ||
-              m.weather.toLowerCase().includes(searchTerms.monitoring.toLowerCase()) ||
-              m.notes.toLowerCase().includes(searchTerms.monitoring.toLowerCase())
-            ).length
-          : ecoData.monitoring.length;
-        
-        if (currentPage * pageSize < filteredCount) {
-          paginationConfig.monitoring.currentPage++;
-          renderMonitoringEntries();
-        }
-      });
-      
-      // Assessment form
-      document.getElementById("assessmentForm").addEventListener("submit", function (e) {
-        e.preventDefault();
-        if (!validateForm(this)) return;
-        
-        const date = document.getElementById("assessmentDate").value;
-        const assessor = document.getElementById("assessorName").value;
-        const description = document.getElementById("siteDescription").value;
-        const health = document.getElementById("ecosystemHealth").value;
-        const threats = Array.from(document.getElementById("threats").selectedOptions).map(o => o.value);
-        const recommendations = document.getElementById("recommendations").value;
-        
-        const newAssessment = { 
-          date, 
-          assessor, 
-          description, 
-          health, 
-          threats,
-          recommendations: recommendations || undefined 
-        };
-        
-        ecoData.assessments.push(newAssessment);
-        saveData();
+      updateRecentActivity();
+      this.reset();
+    });
+    
+    // Set up settings forms
+    document.getElementById("siteSettingsForm").addEventListener("submit", function(e) {
+      e.preventDefault();
+      ecoData.settings.site = {
+        name: document.getElementById("siteName").value || undefined,
+        location: document.getElementById("siteLocation").value || undefined,
+        description: document.getElementById("siteDescription").value || undefined
+      };
+      saveData();
+      showToast('Site settings saved', 'success');
+    });
+    
+    document.getElementById("userSettingsForm").addEventListener("submit", function(e) {
+      e.preventDefault();
+      ecoData.settings.user = {
+        name: document.getElementById("userName").value,
+        role: document.getElementById("userRole").value || undefined,
+        darkMode: document.getElementById("darkMode").checked
+      };
+      ecoData.settings.darkMode = document.getElementById("darkMode").checked;
+      document.body.classList.toggle('dark-mode', ecoData.settings.darkMode);
+      saveData();
+      showToast('User settings saved', 'success');
+    });
+    
+    // Set up pagination controls
+    document.getElementById("prevAssessmentPage").addEventListener("click", function() {
+      if (paginationConfig.assessments.currentPage > 1) {
+        paginationConfig.assessments.currentPage--;
         renderAssessments();
-        renderRecentActivity();
-        this.reset();
-      });
-      
-      // Maintenance form
-      document.getElementById("maintenanceForm").addEventListener("submit", function (e) {
-        e.preventDefault();
-        if (!validateForm(this)) return;
-        
-        const task = {
-          name: document.getElementById("taskName").value,
-          category: document.getElementById("taskCategory").value,
-          due: document.getElementById("taskDueDate").value,
-          notes: document.getElementById("taskNotes").value || undefined,
-          done: false
-        };
-        
-        ecoData.maintenance.push(task);
-        saveData();
+      }
+    });
+    
+    document.getElementById("nextAssessmentPage").addEventListener("click", function() {
+      const { currentPage, itemsPerPage, filteredData } = paginationConfig.assessments;
+      if (currentPage * itemsPerPage < filteredData.length) {
+        paginationConfig.assessments.currentPage++;
+        renderAssessments();
+      }
+    });
+    
+    document.getElementById("prevTaskPage").addEventListener("click", function() {
+      if (paginationConfig.maintenance.currentPage > 1) {
+        paginationConfig.maintenance.currentPage--;
         renderMaintenanceTasks();
-        renderUpcomingTasks();
-        this.reset();
-      });
-      
-      // Species form
-      document.getElementById("speciesForm").addEventListener("submit", function (e) {
-        e.preventDefault();
-        if (!validateForm(this)) return;
-        
-        const species = {
-          name: document.getElementById("speciesName").value,
-          type: document.getElementById("speciesType").value,
-          notes: document.getElementById("speciesNotes").value || undefined
-        };
-        
-        ecoData.species.push(species);
-        saveData();
+      }
+    });
+    
+    document.getElementById("nextTaskPage").addEventListener("click", function() {
+      const { currentPage, itemsPerPage, filteredData } = paginationConfig.maintenance;
+      if (currentPage * itemsPerPage < filteredData.length) {
+        paginationConfig.maintenance.currentPage++;
+        renderMaintenanceTasks();
+      }
+    });
+    
+    document.getElementById("prevSpeciesPage").addEventListener("click", function() {
+      if (paginationConfig.species.currentPage > 1) {
+        paginationConfig.species.currentPage--;
         renderSpeciesList();
-        this.reset();
-      });
-      
-      // Monitoring form
-      document.getElementById("monitoringForm").addEventListener("submit", function (e) {
-        e.preventDefault();
-        if (!validateForm(this)) return;
-        
-        const newEntry = {
-          date: document.getElementById("monitoringDate").value,
-          observer: document.getElementById("monitoringObserver").value,
-          area: document.getElementById("monitoringArea").value,
-          weather: document.getElementById("monitoringWeather").value || undefined,
-          notes: document.getElementById("monitoringNotes").value
-        };
-        
-        ecoData.monitoring.push(newEntry);
-        saveData();
+      }
+    });
+    
+    document.getElementById("nextSpeciesPage").addEventListener("click", function() {
+      const { currentPage, itemsPerPage, filteredData } = paginationConfig.species;
+      if (currentPage * itemsPerPage < filteredData.length) {
+        paginationConfig.species.currentPage++;
+        renderSpeciesList();
+      }
+    });
+    
+    document.getElementById("prevMonitoringPage").addEventListener("click", function() {
+      if (paginationConfig.monitoring.currentPage > 1) {
+        paginationConfig.monitoring.currentPage--;
         renderMonitoringEntries();
-        renderRecentActivity();
-        this.reset();
-      });
-      
-      // Site settings form
-      document.getElementById("siteSettingsForm").addEventListener("submit", function(e) {
-        e.preventDefault();
-        ecoData.settings.site = {
-          name: document.getElementById("siteName").value || undefined,
-          location: document.getElementById("siteLocation").value || undefined,
-          description: document.getElementById("siteDescription").value || undefined
-        };
-        saveData();
-        showToast("Site information saved successfully", "success");
-      });
-      
-      // User settings form
-      document.getElementById("userSettingsForm").addEventListener("submit", function(e) {
-        e.preventDefault();
-        ecoData.settings.user = {
-          name: document.getElementById("userName").value,
-          role: document.getElementById("userRole").value || undefined,
-          darkMode: document.getElementById("darkMode").checked
-        };
-        saveData();
-        showToast("User preferences saved successfully", "success");
-      });
-      
-      // Show floating button on scroll
-      window.addEventListener('scroll', function() {
-        const floatBtn = document.querySelector('.btn-float');
-        if (window.scrollY > 300) {
-          floatBtn.style.display = 'block';
-        } else {
-          floatBtn.style.display = 'none';
-        }
+      }
+    });
+    
+    document.getElementById("nextMonitoringPage").addEventListener("click", function() {
+      const { currentPage, itemsPerPage, filteredData } = paginationConfig.monitoring;
+      if (currentPage * itemsPerPage < filteredData.length) {
+        paginationConfig.monitoring.currentPage++;
+        renderMonitoringEntries();
+      }
+    });
+    
+    // Set up search functionality
+    document.getElementById("assessmentSearch").addEventListener("input", searchAssessments);
+    document.getElementById("monitoringSearch").addEventListener("input", searchMonitoring);
+    
+    // Set up filter buttons
+    document.querySelectorAll(".task-filter").forEach(button => {
+      button.addEventListener("click", function() {
+        filterTasks(this.dataset.filter);
       });
     });
-  </script>
+    
+    document.querySelectorAll(".species-filter").forEach(button => {
+      button.addEventListener("click", function() {
+        filterSpecies(this.dataset.filter);
+      });
+    });
+    
+    // Set up report export buttons
+    document.getElementById("exportCSV").addEventListener("click", exportToCSV);
+    document.getElementById("exportPDF").addEventListener("click", exportToPDF);
+    document.getElementById("exportJSON").addEventListener("click", exportAllData);
+    
+    // Set up floating action button
+    document.querySelector(".btn-float").addEventListener("click", function() {
+      window.scrollTo({
+        top: 0,
+        behavior: "smooth"
+      });
+    });
+    
+    // Show/hide floating button based on scroll position
+    window.addEventListener("scroll", function() {
+      const floatBtn = document.querySelector(".btn-float");
+      if (window.pageYOffset > 300) {
+        floatBtn.style.display = "block";
+      } else {
+        floatBtn.style.display = "none";
+      }
+    });
+  });
+</script>
 </body>
 </html>
 
