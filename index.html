@@ -1,0 +1,1611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Native Ecosystem Maintenance Tool | AHCECR301 Compliance</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet"/>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet"/>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
+  <style>
+    html, body { height: 100%; margin: 0; }
+    .sidebar { min-height: 100vh; background-color: #2c3e50; color: white; }
+    .sidebar .nav-link { color: rgba(255, 255, 255, 0.8); margin-bottom: 5px; }
+    .sidebar .nav-link:hover, .sidebar .nav-link.active { color: white; background-color: #34495e; }
+    .sidebar .nav-link i { margin-right: 10px; }
+    .main-content { background-color: #f8f9fa; padding: 20px; }
+    .card { margin-bottom: 20px; border: none; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+    .map-container { height: 400px; background-color: #e9ecef; border-radius: 5px; margin-bottom: 20px; }
+    .species-card { transition: transform 0.2s; }
+    .species-card:hover { transform: translateY(-5px); }
+    .logo { font-weight: 700; padding: 15px; font-size: 1.2rem; border-bottom: 1px solid rgba(255,255,255,0.1); }
+    #map, #dashboardMap { height: 100%; width: 100%; border-radius: 5px; }
+    .map-controls { position: absolute; top: 10px; right: 10px; z-index: 1000; }
+    .leaflet-top.leaflet-right { margin-top: 50px; }
+    .chart-container { position: relative; height: 300px; margin-bottom: 2rem; }
+    .task-completed { text-decoration: line-through; color: #6c757d; }
+    .is-invalid { border-color: #dc3545; }
+    .invalid-feedback { color: #dc3545; font-size: 0.875em; }
+    .species-badge { font-size: 0.8em; }
+    .species-native { background-color: #28a745; }
+    .species-weed { background-color: #dc3545; }
+    .species-introduced { background-color: #fd7e14; }
+    .species-unknown { background-color: #6c757d; }
+    @media (max-width: 768px) {
+      .sidebar { min-height: auto; }
+      .chart-container { height: 250px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container-fluid">
+    <div class="row">
+      <div class="col-md-3 col-lg-2 sidebar p-0">
+        <div class="logo">EcoMaintain</div>
+        <ul class="nav flex-column p-3">
+          <li class="nav-item"><a class="nav-link active" href="#dashboard" data-bs-toggle="tab"><i class="bi bi-speedometer2"></i> Dashboard</a></li>
+          <li class="nav-item"><a class="nav-link" href="#site-assessment" data-bs-toggle="tab"><i class="bi bi-clipboard-data"></i> Site Assessment</a></li>
+          <li class="nav-item"><a class="nav-link" href="#maintenance-plan" data-bs-toggle="tab"><i class="bi bi-calendar-check"></i> Maintenance Plan</a></li>
+          <li class="nav-item"><a class="nav-link" href="#species-register" data-bs-toggle="tab"><i class="bi bi-tree"></i> Species Register</a></li>
+          <li class="nav-item"><a class="nav-link" href="#monitoring" data-bs-toggle="tab"><i class="bi bi-binoculars"></i> Monitoring</a></li>
+          <li class="nav-item"><a class="nav-link" href="#reports" data-bs-toggle="tab"><i class="bi bi-file-earmark-text"></i> Reports</a></li>
+          <li class="nav-item mt-4"><a class="nav-link" href="#settings" data-bs-toggle="tab"><i class="bi bi-gear"></i> Settings</a></li>
+        </ul>
+      </div>
+
+      <div class="col-md-9 col-lg-10 ms-sm-auto main-content">
+        <div class="tab-content">
+
+          <!-- Dashboard -->
+          <div class="tab-pane fade show active" id="dashboard">
+            <div class="pt-3 pb-2 mb-3 border-bottom">
+              <h1 class="h2">Dashboard</h1>
+            </div>
+            
+            <div class="row mb-4">
+              <div class="col-md-3">
+                <div class="card text-white bg-primary">
+                  <div class="card-body">
+                    <h5 class="card-title">Assessments</h5>
+                    <h2 class="card-text" id="assessmentCount">0</h2>
+                  </div>
+                </div>
+              </div>
+              <div class="col-md-3">
+                <div class="card text-white bg-success">
+                  <div class="card-body">
+                    <h5 class="card-title">Tasks Completed</h5>
+                    <h2 class="card-text" id="completedTasks">0</h2>
+                  </div>
+                </div>
+              </div>
+              <div class="col-md-3">
+                <div class="card text-white bg-warning">
+                  <div class="card-body">
+                    <h5 class="card-title">Species</h5>
+                    <h2 class="card-text" id="speciesCount">0</h2>
+                  </div>
+                </div>
+              </div>
+              <div class="col-md-3">
+                <div class="card text-white bg-info">
+                  <div class="card-body">
+                    <h5 class="card-title">Monitoring</h5>
+                    <h2 class="card-text" id="monitoringCount">0</h2>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-body">
+                <h5 class="card-title">Site Overview Map</h5>
+                <div id="dashboardMap" style="height: 400px;"></div>
+                <div class="mt-3">
+                  <button class="btn btn-sm btn-outline-primary" onclick="locateUser()">
+                    <i class="bi bi-geo-alt"></i> Use My Location
+                  </button>
+                  <button class="btn btn-sm btn-outline-secondary" onclick="addPhotoMarker()">
+                    <i class="bi bi-camera"></i> Add Photo Marker
+                  </button>
+                  <button class="btn btn-sm btn-danger" onclick="clearMapData()">
+                    <i class="bi bi-trash"></i> Clear Map Data
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Site Assessment -->
+          <div class="tab-pane fade" id="site-assessment">
+            <div class="pt-3 pb-2 mb-3 border-bottom">
+              <h1 class="h2">Site Assessment</h1>
+            </div>
+            <div class="card">
+              <div class="card-body">
+                <form id="assessmentForm">
+                  <div class="mb-3">
+                    <label for="assessmentDate" class="form-label">Date</label>
+                    <input type="date" class="form-control" id="assessmentDate" required>
+                    <div class="invalid-feedback">Please provide a valid date.</div>
+                  </div>
+                  <div class="mb-3">
+                    <label for="assessorName" class="form-label">Assessor</label>
+                    <input type="text" class="form-control" id="assessorName" required minlength="2">
+                    <div class="invalid-feedback">Please provide the assessor's name (at least 2 characters).</div>
+                  </div>
+                  <div class="mb-3">
+                    <label for="siteDescription" class="form-label">Site Description</label>
+                    <textarea class="form-control" id="siteDescription" rows="3" required minlength="10"></textarea>
+                    <div class="invalid-feedback">Please provide a detailed description (at least 10 characters).</div>
+                  </div>
+                  <div class="mb-3">
+                    <label for="ecosystemHealth" class="form-label">Health Rating</label>
+                    <select class="form-select" id="ecosystemHealth" required>
+                      <option value="">Select health rating</option>
+                      <option value="Excellent">Excellent</option>
+                      <option value="Good">Good</option>
+                      <option value="Fair">Fair</option>
+                      <option value="Poor">Poor</option>
+                      <option value="Critical">Critical</option>
+                    </select>
+                    <div class="invalid-feedback">Please select a health rating.</div>
+                  </div>
+                  <div class="mb-3">
+                    <label for="threats" class="form-label">Identified Threats</label>
+                    <select multiple class="form-select" id="threats" required>
+                      <option>Weeds</option>
+                      <option>Erosion</option>
+                      <option>Pests</option>
+                      <option>Illegal access</option>
+                      <option>Fire damage</option>
+                      <option>Drought</option>
+                      <option>Flooding</option>
+                      <option>Pollution</option>
+                    </select>
+                    <div class="invalid-feedback">Please select at least one threat.</div>
+                    <small class="text-muted">Hold Ctrl/Cmd to select multiple items</small>
+                  </div>
+                  <div class="mb-3">
+                    <label for="recommendations" class="form-label">Recommendations</label>
+                    <textarea class="form-control" id="recommendations" rows="2"></textarea>
+                  </div>
+                  <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-save"></i> Add Assessment
+                  </button>
+                </form>
+              </div>
+            </div>
+            <div class="card mt-4">
+              <div class="card-body">
+                <h5 class="card-title">Previous Assessments</h5>
+                <div class="table-responsive">
+                  <table class="table table-hover">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Assessor</th>
+                        <th>Health</th>
+                        <th>Threats</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody id="assessmentTableBody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Maintenance Plan -->
+          <div class="tab-pane fade" id="maintenance-plan">
+            <div class="pt-3 pb-2 mb-3 border-bottom">
+              <h1 class="h2">Maintenance Plan</h1>
+            </div>
+
+            <form id="maintenanceForm" class="row g-3 mb-4">
+              <div class="col-md-4">
+                <label for="taskName" class="form-label">Task</label>
+                <input type="text" class="form-control" id="taskName" required>
+                <div class="invalid-feedback">Please provide a task name.</div>
+              </div>
+              <div class="col-md-3">
+                <label for="taskCategory" class="form-label">Category</label>
+                <select class="form-select" id="taskCategory" required>
+                  <option value="">Select category</option>
+                  <option>Weeding</option>
+                  <option>Replanting</option>
+                  <option>Track repair</option>
+                  <option>Fencing</option>
+                  <option>Watering</option>
+                  <option>Monitoring</option>
+                  <option>Other</option>
+                </select>
+                <div class="invalid-feedback">Please select a category.</div>
+              </div>
+              <div class="col-md-3">
+                <label for="taskDueDate" class="form-label">Due Date</label>
+                <input type="date" class="form-control" id="taskDueDate" required>
+                <div class="invalid-feedback">Please select a due date.</div>
+              </div>
+              <div class="col-md-2 d-flex align-items-end">
+                <button type="submit" class="btn btn-success w-100">
+                  <i class="bi bi-plus-circle"></i> Add Task
+                </button>
+              </div>
+              <div class="col-12">
+                <label for="taskNotes" class="form-label">Notes (optional)</label>
+                <textarea class="form-control" id="taskNotes" rows="1"></textarea>
+              </div>
+            </form>
+
+            <div class="table-responsive">
+              <table class="table table-striped align-middle">
+                <thead>
+                  <tr>
+                    <th>Task</th>
+                    <th>Category</th>
+                    <th>Due</th>
+                    <th>Status</th>
+                    <th style="width: 120px;">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="maintenanceTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Species Register -->
+          <div class="tab-pane fade" id="species-register">
+            <div class="pt-3 pb-2 mb-3 border-bottom">
+              <h1 class="h2">Species Register</h1>
+            </div>
+
+            <form id="speciesForm" class="row g-3 mb-4">
+              <div class="col-md-4">
+                <label for="speciesName" class="form-label">Species Name</label>
+                <input type="text" class="form-control" id="speciesName" required>
+                <div class="invalid-feedback">Please provide a species name.</div>
+              </div>
+              <div class="col-md-3">
+                <label for="speciesType" class="form-label">Type</label>
+                <select class="form-select" id="speciesType" required>
+                  <option value="">Select type</option>
+                  <option>Native</option>
+                  <option>Weed</option>
+                  <option>Introduced</option>
+                  <option>Unknown</option>
+                </select>
+                <div class="invalid-feedback">Please select a species type.</div>
+              </div>
+              <div class="col-md-3">
+                <label for="speciesNotes" class="form-label">Notes</label>
+                <input type="text" class="form-control" id="speciesNotes">
+              </div>
+              <div class="col-md-2 d-flex align-items-end">
+                <button type="submit" class="btn btn-success w-100">
+                  <i class="bi bi-plus-circle"></i> Add Species
+                </button>
+              </div>
+            </form>
+
+            <div class="table-responsive">
+              <table class="table table-striped align-middle">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Type</th>
+                    <th>Notes</th>
+                    <th style="width: 100px;">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="speciesTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Monitoring -->
+          <div class="tab-pane fade" id="monitoring">
+            <div class="pt-3 pb-2 mb-3 border-bottom">
+              <h1 class="h2">Monitoring</h1>
+            </div>
+
+            <form id="monitoringForm" class="row g-3 mb-4">
+              <div class="col-md-3">
+                <label for="monitoringDate" class="form-label">Date</label>
+                <input type="date" class="form-control" id="monitoringDate" required>
+                <div class="invalid-feedback">Please provide a date.</div>
+              </div>
+              <div class="col-md-3">
+                <label for="monitoringObserver" class="form-label">Observer</label>
+                <input type="text" class="form-control" id="monitoringObserver" required>
+                <div class="invalid-feedback">Please provide observer's name.</div>
+              </div>
+              <div class="col-md-3">
+                <label for="monitoringArea" class="form-label">Location / Area</label>
+                <input type="text" class="form-control" id="monitoringArea" required>
+                <div class="invalid-feedback">Please provide a location.</div>
+              </div>
+              <div class="col-md-3">
+                <label for="monitoringWeather" class="form-label">Weather</label>
+                <select class="form-select" id="monitoringWeather">
+                  <option value="">Select weather</option>
+                  <option>Sunny</option>
+                  <option>Cloudy</option>
+                  <option>Rainy</option>
+                  <option>Windy</option>
+                  <option>Stormy</option>
+                </select>
+              </div>
+              <div class="col-12">
+                <label for="monitoringNotes" class="form-label">Notes / Observations</label>
+                <textarea class="form-control" id="monitoringNotes" rows="3" required></textarea>
+                <div class="invalid-feedback">Please provide some observations.</div>
+              </div>
+              <div class="col-12 d-flex justify-content-end">
+                <button type="submit" class="btn btn-success">
+                  <i class="bi bi-plus-circle"></i> Add Monitoring Entry
+                </button>
+              </div>
+            </form>
+
+            <div class="table-responsive">
+              <table class="table table-striped align-middle">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Observer</th>
+                    <th>Location</th>
+                    <th>Weather</th>
+                    <th>Notes</th>
+                    <th style="width: 100px;">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="monitoringTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Reports -->
+          <div class="tab-pane fade" id="reports">
+            <div class="pt-3 pb-2 mb-3 border-bottom">
+              <h1 class="h2">Reports</h1>
+            </div>
+
+            <div class="mb-3">
+              <button class="btn btn-outline-primary me-2" onclick="generateReport()">
+                <i class="bi bi-file-earmark-text"></i> Generate Summary
+              </button>
+              <button class="btn btn-outline-secondary me-2" onclick="exportToCSV()">
+                <i class="bi bi-download"></i> Export to CSV
+              </button>
+              <button class="btn btn-outline-success" onclick="window.print()">
+                <i class="bi bi-printer"></i> Print
+              </button>
+            </div>
+
+            <div id="reportContent" class="bg-white p-4 border rounded shadow-sm mb-4" style="min-height: 200px;">
+              <p class="text-muted">Click "Generate Summary" to view a snapshot of your data.</p>
+            </div>
+
+            <div class="row">
+              <div class="col-md-6 mb-4">
+                <div class="card">
+                  <div class="card-body">
+                    <h5 class="card-title">Maintenance Tasks</h5>
+                    <div class="chart-container">
+                      <canvas id="maintenanceChart"></canvas>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="col-md-6 mb-4">
+                <div class="card">
+                  <div class="card-body">
+                    <h5 class="card-title">Species Distribution</h5>
+                    <div class="chart-container">
+                      <canvas id="speciesChart"></canvas>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="col-md-12 mb-4">
+                <div class="card">
+                  <div class="card-body">
+                    <h5 class="card-title">Monitoring Activity</h5>
+                    <div class="chart-container">
+                      <canvas id="monitoringChart"></canvas>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Settings -->
+          <div class="tab-pane fade" id="settings">
+            <div class="pt-3 pb-2 mb-3 border-bottom">
+              <h1 class="h2">Settings</h1>
+            </div>
+            
+            <div class="card mb-4">
+              <div class="card-body">
+                <h5 class="card-title">Site Information</h5>
+                <form id="siteSettingsForm">
+                  <div class="mb-3">
+                    <label for="siteName" class="form-label">Site Name</label>
+                    <input type="text" class="form-control" id="siteName" value="">
+                  </div>
+                  <div class="mb-3">
+                    <label for="siteLocation" class="form-label">Location</label>
+                    <input type="text" class="form-control" id="siteLocation">
+                  </div>
+                  <div class="mb-3">
+                    <label for="siteDescription" class="form-label">Description</label>
+                    <textarea class="form-control" id="siteDescription" rows="3"></textarea>
+                  </div>
+                  <button type="submit" class="btn btn-primary">Save Site Info</button>
+                </form>
+              </div>
+            </div>
+            
+            <div class="card mb-4">
+              <div class="card-body">
+                <h5 class="card-title">User Preferences</h5>
+                <form id="userSettingsForm">
+                  <div class="mb-3">
+                    <label for="userName" class="form-label">Your Name</label>
+                    <input type="text" class="form-control" id="userName" required>
+                  </div>
+                  <div class="mb-3">
+                    <label for="userRole" class="form-label">Your Role</label>
+                    <input type="text" class="form-control" id="userRole">
+                  </div>
+                  <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="darkMode">
+                    <label class="form-check-label" for="darkMode">Dark Mode</label>
+                  </div>
+                  <button type="submit" class="btn btn-primary">Save Preferences</button>
+                </form>
+              </div>
+            </div>
+            
+            <div class="card border-danger">
+              <div class="card-body">
+                <h5 class="card-title text-danger">Danger Zone</h5>
+                <p class="card-text">These actions cannot be undone.</p>
+                <button class="btn btn-outline-danger me-2" onclick="clearData()">
+                  <i class="bi bi-trash"></i> Clear All Data
+                </button>
+                <button class="btn btn-danger" onclick="exportAllData()">
+                  <i class="bi bi-download"></i> Export All Data
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- JS Dependencies -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+
+  <!-- Main Script -->
+  <script>
+    // Initialize data structure
+    let ecoData = {
+      settings: {
+        user: {},
+        site: {}
+      },
+      assessments: [],
+      maintenance: [],
+      species: [],
+      monitoring: [],
+      mapMarkers: []
+    };
+
+    // Load data from localStorage
+    function loadData() {
+      const saved = localStorage.getItem("ecoMaintainData");
+      if (saved) {
+        try { 
+          ecoData = JSON.parse(saved); 
+          updateDashboardCounts();
+        }
+        catch (e) { 
+          console.error("Error loading data", e); 
+          alert("Error loading saved data. Starting with fresh data.");
+        }
+      }
+    }
+
+    // Save data to localStorage
+    function saveData() {
+      try {
+        localStorage.setItem("ecoMaintainData", JSON.stringify(ecoData));
+        updateDashboardCounts();
+      } catch (e) {
+        console.error("Error saving", e);
+        alert("Error saving data. Check console for details.");
+      }
+    }
+
+    // Clear all data
+    function clearData() {
+      if (confirm("This will permanently delete ALL your data. Are you sure?")) {
+        localStorage.removeItem("ecoMaintainData");
+        localStorage.removeItem("dashboardMapShapes");
+        ecoData = {
+          settings: { user: {}, site: {} },
+          assessments: [],
+          maintenance: [],
+          species: [],
+          monitoring: [],
+          mapMarkers: []
+        };
+        location.reload();
+      }
+    }
+
+    // Update dashboard counters
+    function updateDashboardCounts() {
+      document.getElementById("assessmentCount").textContent = ecoData.assessments.length;
+      document.getElementById("completedTasks").textContent = ecoData.maintenance.filter(t => t.done).length;
+      document.getElementById("speciesCount").textContent = ecoData.species.length;
+      document.getElementById("monitoringCount").textContent = ecoData.monitoring.length;
+    }
+
+    // Initialize the dashboard map
+    function initDashboardMap() {
+      const map = L.map("dashboardMap").setView([-42.8821, 147.3272], 13);
+
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+
+      // Geocoder
+      L.Control.geocoder({
+        defaultMarkGeocode: false,
+        placeholder: "Search for location...",
+        errorMessage: "Location not found."
+      })
+        .on("markgeocode", function (e) {
+          const bbox = e.geocode.bbox;
+          const poly = L.polygon([
+            bbox.getSouthEast(),
+            bbox.getNorthEast(),
+            bbox.getNorthWest(),
+            bbox.getSouthWest()
+          ]).addTo(map);
+          map.fitBounds(poly.getBounds());
+        })
+        .addTo(map);
+
+      // Drawing feature layer
+      const drawnItems = new L.FeatureGroup();
+      map.addLayer(drawnItems);
+
+      // Initialize draw control
+      const drawControl = new L.Control.Draw({
+        edit: {
+          featureGroup: drawnItems,
+          remove: true
+        },
+        draw: {
+          polygon: {
+            allowIntersection: false,
+            drawError: {
+              color: '#b00b00',
+              message: '<strong>Error:</strong> polygon edges cannot cross!'
+            },
+            shapeOptions: {
+              color: '#3388ff'
+            }
+          },
+          polyline: false,
+          rectangle: {
+            shapeOptions: {
+              color: '#3388ff'
+            }
+          },
+          circle: false,
+          circlemarker: false,
+          marker: {
+            icon: L.icon({
+              iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+              shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+              iconSize: [25, 41],
+              iconAnchor: [12, 41],
+              popupAnchor: [1, -34],
+              shadowSize: [41, 41]
+            })
+          }
+        }
+      });
+      map.addControl(drawControl);
+
+      // Load saved shapes
+      const savedShapes = localStorage.getItem("dashboardMapShapes");
+      if (savedShapes) {
+        const geojson = JSON.parse(savedShapes);
+        L.geoJSON(geojson, {
+          onEachFeature: (feature, layer) => {
+            if (feature.properties.type === 'photo') {
+              layer.bindPopup(`
+                <div class="text-center">
+                  <img src="${feature.properties.photo}" style="max-width: 200px; max-height: 150px;" class="img-thumbnail mb-2">
+                  <p class="mb-1"><strong>${feature.properties.title || 'Photo'}</strong></p>
+                  <small class="text-muted">${feature.properties.date || ''}</small>
+                </div>
+              `);
+            }
+            drawnItems.addLayer(layer);
+          }
+        });
+      }
+
+      // Save on draw
+      map.on(L.Draw.Event.CREATED, function (e) {
+        const layer = e.layer;
+        drawnItems.addLayer(layer);
+        saveMapShapes();
+      });
+
+      // Save on edit/delete
+      map.on(L.Draw.Event.EDITED, saveMapShapes);
+      map.on(L.Draw.Event.DELETED, saveMapShapes);
+
+      function saveMapShapes() {
+        const data = drawnItems.toGeoJSON();
+        localStorage.setItem("dashboardMapShapes", JSON.stringify(data));
+      }
+
+      window.dashboardMap = map;
+      window.drawnItems = drawnItems;
+    }
+
+    // Locate user on map
+    function locateUser() {
+      if (!navigator.geolocation) {
+        alert("Geolocation not supported by your browser.");
+        return;
+      }
+      
+      const map = window.dashboardMap;
+      map.locate({setView: true, maxZoom: 16});
+      
+      map.on('locationfound', function(e) {
+        const radius = e.accuracy / 2;
+        L.marker(e.latlng).addTo(map)
+          .bindPopup(`You are within ${Math.round(radius)} meters of this point`).openPopup();
+        L.circle(e.latlng, radius).addTo(map);
+      });
+      
+      map.on('locationerror', function(e) {
+        alert("Unable to retrieve your location: " + e.message);
+      });
+    }
+
+    // Add photo marker to map
+    function addPhotoMarker() {
+      const photoUrl = prompt("Enter photo URL (or leave blank for no photo):");
+      if (photoUrl === null) return; // User cancelled
+      
+      const title = prompt("Enter marker title (optional):") || "Photo Marker";
+      const date = new Date().toISOString().split('T')[0];
+      
+      window.dashboardMap.once('click', function(e) {
+        const marker = L.marker(e.latlng).addTo(window.drawnItems);
+        
+        // Add custom properties
+        marker.feature = {
+          type: 'Feature',
+          properties: {
+            type: 'photo',
+            photo: photoUrl,
+            title: title,
+            date: date
+          },
+          geometry: {
+            type: 'Point',
+            coordinates: [e.latlng.lng, e.latlng.lat]
+          }
+        };
+        
+        if (photoUrl) {
+          marker.bindPopup(`
+            <div class="text-center">
+              <img src="${photoUrl}" style="max-width: 200px; max-height: 150px;" class="img-thumbnail mb-2">
+              <p class="mb-1"><strong>${title}</strong></p>
+              <small class="text-muted">${date}</small>
+            </div>
+          `);
+        } else {
+          marker.bindPopup(`<strong>${title}</strong><br><small>${date}</small>`);
+        }
+        
+        saveMapShapes();
+      });
+      
+      alert("Click on the map where you want to place the marker");
+    }
+
+    // Clear map data
+    function clearMapData() {
+      if (confirm("Clear all saved map drawings and markers?")) {
+        localStorage.removeItem("dashboardMapShapes");
+        window.drawnItems.clearLayers();
+      }
+    }
+
+    // Form validation helper
+    function validateForm(form) {
+      let isValid = true;
+      const inputs = form.querySelectorAll('input[required], select[required], textarea[required]');
+      
+      inputs.forEach(input => {
+        if (!input.value) {
+          input.classList.add('is-invalid');
+          isValid = false;
+        } else {
+          input.classList.remove('is-invalid');
+        }
+        
+        // Check minlength for text inputs
+        if (input.minLength > 0 && input.value.length < input.minLength) {
+          input.classList.add('is-invalid');
+          isValid = false;
+        }
+      });
+      
+      return isValid;
+    }
+
+    // Render assessments table
+    function renderAssessments() {
+      const tableBody = document.getElementById("assessmentTableBody");
+      tableBody.innerHTML = "";
+      
+      ecoData.assessments.forEach((assessment, index) => {
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td>${assessment.date}</td>
+          <td>${assessment.assessor}</td>
+          <td>
+            <span class="badge ${getHealthBadgeClass(assessment.health)}">
+              ${assessment.health}
+            </span>
+          </td>
+          <td>${assessment.threats.join(", ")}</td>
+          <td>
+            <button class="btn btn-sm btn-outline-primary" onclick="viewAssessment(${index})">
+              <i class="bi bi-eye"></i> View
+            </button>
+            <button class="btn btn-sm btn-outline-danger" onclick="deleteAssessment(${index})">
+              <i class="bi bi-trash"></i>
+            </button>
+          </td>
+        `;
+        tableBody.appendChild(row);
+      });
+    }
+
+    function getHealthBadgeClass(health) {
+      switch(health) {
+        case 'Excellent': return 'bg-success';
+        case 'Good': return 'bg-primary';
+        case 'Fair': return 'bg-warning';
+        case 'Poor': return 'bg-danger';
+        case 'Critical': return 'bg-dark';
+        default: return 'bg-secondary';
+      }
+    }
+
+    function viewAssessment(index) {
+      const assessment = ecoData.assessments[index];
+      const modalHtml = `
+        <div class="modal fade" id="assessmentModal" tabindex="-1" aria-hidden="true">
+          <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title">Assessment Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+              </div>
+              <div class="modal-body">
+                <div class="row mb-3">
+                  <div class="col-md-6">
+                    <p><strong>Date:</strong> ${assessment.date}</p>
+                    <p><strong>Assessor:</strong> ${assessment.assessor}</p>
+                  </div>
+                  <div class="col-md-6">
+                    <p><strong>Health:</strong> <span class="badge ${getHealthBadgeClass(assessment.health)}">${assessment.health}</span></p>
+                    <p><strong>Threats:</strong> ${assessment.threats.join(", ")}</p>
+                  </div>
+                </div>
+                <div class="mb-3">
+                  <h6>Site Description</h6>
+                  <p>${assessment.description || 'No description provided.'}</p>
+                </div>
+                ${assessment.recommendations ? `
+                <div class="mb-3">
+                  <h6>Recommendations</h6>
+                  <p>${assessment.recommendations}</p>
+                </div>
+                ` : ''}
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      
+      const modalContainer = document.createElement('div');
+      modalContainer.innerHTML = modalHtml;
+      document.body.appendChild(modalContainer);
+      
+      const modal = new bootstrap.Modal(document.getElementById('assessmentModal'));
+      modal.show();
+      
+      // Remove modal from DOM after it's hidden
+      document.getElementById('assessmentModal').addEventListener('hidden.bs.modal', function() {
+        document.body.removeChild(modalContainer);
+      });
+    }
+
+    function deleteAssessment(index) {
+      if (confirm("Delete this assessment?")) {
+        ecoData.assessments.splice(index, 1);
+        saveData();
+        renderAssessments();
+      }
+    }
+
+    // Render maintenance tasks
+    function renderMaintenanceTasks() {
+      const tableBody = document.getElementById("maintenanceTableBody");
+      tableBody.innerHTML = "";
+
+      // Sort by due date (ascending)
+      const sortedTasks = [...ecoData.maintenance].sort((a, b) => new Date(a.due) - new Date(b.due));
+      
+      sortedTasks.forEach((task, index) => {
+        const row = document.createElement("tr");
+        if (task.done) row.classList.add("table-secondary");
+        
+        const dueDate = new Date(task.due);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        let dueBadge = '';
+        if (!task.done) {
+          if (dueDate < today) {
+            dueBadge = '<span class="badge bg-danger ms-2">Overdue</span>';
+          } else if (dueDate.toDateString() === today.toDateString()) {
+            dueBadge = '<span class="badge bg-warning ms-2">Due Today</span>';
+          }
+        }
+        
+        row.innerHTML = `
+          <td class="${task.done ? 'task-completed' : ''}">${task.name}</td>
+          <td>${task.category}</td>
+          <td>
+            ${dueDate.toLocaleDateString()}
+            ${dueBadge}
+          </td>
+          <td>
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" role="switch" 
+                ${task.done ? "checked" : ""} onchange="toggleTaskStatus(${index})">
+              <label class="form-check-label">${task.done ? "Completed" : "Pending"}</label>
+            </div>
+          </td>
+          <td>
+            <button class="btn btn-sm btn-outline-primary me-1" onclick="editTask(${index})">
+              <i class="bi bi-pencil"></i>
+            </button>
+            <button class="btn btn-sm btn-outline-danger" onclick="deleteTask(${index})">
+              <i class="bi bi-trash"></i>
+            </button>
+          </td>
+        `;
+        tableBody.appendChild(row);
+      });
+    }
+
+    function toggleTaskStatus(index) {
+      ecoData.maintenance[index].done = !ecoData.maintenance[index].done;
+      saveData();
+      renderMaintenanceTasks();
+    }
+
+    function editTask(index) {
+      const task = ecoData.maintenance[index];
+      document.getElementById("taskName").value = task.name;
+      document.getElementById("taskCategory").value = task.category;
+      document.getElementById("taskDueDate").value = task.due;
+      document.getElementById("taskNotes").value = task.notes || '';
+      
+      // Remove the task from the array
+      ecoData.maintenance.splice(index, 1);
+      saveData();
+      renderMaintenanceTasks();
+      
+      // Scroll to form
+      document.getElementById("maintenanceForm").scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function deleteTask(index) {
+      if (confirm("Delete this task?")) {
+        ecoData.maintenance.splice(index, 1);
+        saveData();
+        renderMaintenanceTasks();
+      }
+    }
+
+    // Render species list
+    function renderSpeciesList() {
+      const body = document.getElementById("speciesTableBody");
+      body.innerHTML = "";
+      
+      // Sort alphabetically by name
+      const sortedSpecies = [...ecoData.species].sort((a, b) => a.name.localeCompare(b.name));
+      
+      sortedSpecies.forEach((sp, i) => {
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td>${sp.name}</td>
+          <td>
+            <span class="badge species-badge ${getSpeciesBadgeClass(sp.type)}">
+              ${sp.type}
+            </span>
+          </td>
+          <td>${sp.notes || "-"}</td>
+          <td>
+            <button class="btn btn-sm btn-outline-primary me-1" onclick="editSpecies(${i})">
+              <i class="bi bi-pencil"></i>
+            </button>
+            <button class="btn btn-sm btn-outline-danger" onclick="deleteSpecies(${i})">
+              <i class="bi bi-trash"></i>
+            </button>
+          </td>
+        `;
+        body.appendChild(row);
+      });
+    }
+
+    function getSpeciesBadgeClass(type) {
+      switch(type.toLowerCase()) {
+        case 'native': return 'species-native';
+        case 'weed': return 'species-weed';
+        case 'introduced': return 'species-introduced';
+        default: return 'species-unknown';
+      }
+    }
+
+    function editSpecies(index) {
+      const species = ecoData.species[index];
+      document.getElementById("speciesName").value = species.name;
+      document.getElementById("speciesType").value = species.type;
+      document.getElementById("speciesNotes").value = species.notes || '';
+      
+      // Remove the species from the array
+      ecoData.species.splice(index, 1);
+      saveData();
+      renderSpeciesList();
+      
+      // Scroll to form
+      document.getElementById("speciesForm").scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function deleteSpecies(index) {
+      if (confirm("Delete this species?")) {
+        ecoData.species.splice(index, 1);
+        saveData();
+        renderSpeciesList();
+      }
+    }
+
+    // Render monitoring entries
+    function renderMonitoringEntries() {
+      const body = document.getElementById("monitoringTableBody");
+      body.innerHTML = "";
+      
+      // Sort by date (newest first)
+      const sortedEntries = [...ecoData.monitoring].sort((a, b) => new Date(b.date) - new Date(a.date));
+      
+      sortedEntries.forEach((entry, i) => {
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td>${entry.date}</td>
+          <td>${entry.observer}</td>
+          <td>${entry.area || "-"}</td>
+          <td>${entry.weather || "-"}</td>
+          <td class="text-truncate" style="max-width: 200px;" title="${entry.notes}">
+            ${entry.notes || "-"}
+          </td>
+          <td>
+            <button class="btn btn-sm btn-outline-primary me-1" onclick="viewMonitoringEntry(${i})">
+              <i class="bi bi-eye"></i>
+            </button>
+            <button class="btn btn-sm btn-outline-danger" onclick="deleteMonitoringEntry(${i})">
+              <i class="bi bi-trash"></i>
+            </button>
+          </td>
+        `;
+        body.appendChild(row);
+      });
+    }
+
+    function viewMonitoringEntry(index) {
+      const entry = ecoData.monitoring[index];
+      const modalHtml = `
+        <div class="modal fade" id="monitoringModal" tabindex="-1" aria-hidden="true">
+          <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title">Monitoring Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+              </div>
+              <div class="modal-body">
+                <div class="row mb-3">
+                  <div class="col-md-4">
+                    <p><strong>Date:</strong> ${entry.date}</p>
+                  </div>
+                  <div class="col-md-4">
+                    <p><strong>Observer:</strong> ${entry.observer}</p>
+                  </div>
+                  <div class="col-md-4">
+                    <p><strong>Weather:</strong> ${entry.weather || 'Not recorded'}</p>
+                  </div>
+                </div>
+                <div class="mb-3">
+                  <p><strong>Location:</strong> ${entry.area || 'Not specified'}</p>
+                </div>
+                <div class="mb-3">
+                  <h6>Observations</h6>
+                  <p>${entry.notes || 'No observations recorded.'}</p>
+                </div>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      
+      const modalContainer = document.createElement('div');
+      modalContainer.innerHTML = modalHtml;
+      document.body.appendChild(modalContainer);
+      
+      const modal = new bootstrap.Modal(document.getElementById('monitoringModal'));
+      modal.show();
+      
+      // Remove modal from DOM after it's hidden
+      document.getElementById('monitoringModal').addEventListener('hidden.bs.modal', function() {
+        document.body.removeChild(modalContainer);
+      });
+    }
+
+    function deleteMonitoringEntry(index) {
+      if (confirm("Delete this monitoring record?")) {
+        ecoData.monitoring.splice(index, 1);
+        saveData();
+        renderMonitoringEntries();
+      }
+    }
+
+    // Generate reports
+    function generateReport() {
+      const report = [];
+      const today = new Date().toISOString().split('T')[0];
+      
+      // Header
+      report.push(`
+        <div class="report-header mb-4">
+          <h3>Ecosystem Maintenance Report</h3>
+          <p class="text-muted">Generated on ${today}</p>
+          ${ecoData.settings.site.name ? `<h4>${ecoData.settings.site.name}</h4>` : ''}
+          ${ecoData.settings.site.location ? `<p><i class="bi bi-geo-alt"></i> ${ecoData.settings.site.location}</p>` : ''}
+          <hr>
+        </div>
+      `);
+      
+      // Summary Stats
+      report.push(`
+        <div class="row mb-4">
+          <div class="col-md-3">
+            <div class="card bg-light">
+              <div class="card-body text-center">
+                <h5 class="card-title">Assessments</h5>
+                <h2 class="card-text">${ecoData.assessments.length}</h2>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <div class="card bg-light">
+              <div class="card-body text-center">
+                <h5 class="card-title">Tasks</h5>
+                <h2 class="card-text">${ecoData.maintenance.length}</h2>
+                <small>${ecoData.maintenance.filter(t => t.done).length} completed</small>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <div class="card bg-light">
+              <div class="card-body text-center">
+                <h5 class="card-title">Species</h5>
+                <h2 class="card-text">${ecoData.species.length}</h2>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <div class="card bg-light">
+              <div class="card-body text-center">
+                <h5 class="card-title">Monitoring</h5>
+                <h2 class="card-text">${ecoData.monitoring.length}</h2>
+              </div>
+            </div>
+          </div>
+        </div>
+      `);
+      
+      // Site Assessments
+      report.push("<h4 class='mt-4'>Site Assessments</h4>");
+      if (ecoData.assessments.length) {
+        report.push("<div class='table-responsive'><table class='table table-sm'><thead><tr><th>Date</th><th>Assessor</th><th>Health</th><th>Threats</th></tr></thead><tbody>");
+        ecoData.assessments.forEach(a => {
+          report.push(`
+            <tr>
+              <td>${a.date}</td>
+              <td>${a.assessor}</td>
+              <td><span class="badge ${getHealthBadgeClass(a.health)}">${a.health}</span></td>
+              <td>${a.threats?.join(', ') || 'None'}</td>
+            </tr>
+          `);
+        });
+        report.push("</tbody></table></div>");
+      } else {
+        report.push("<div class='alert alert-info'>No assessments recorded.</div>");
+      }
+      
+      // Maintenance Tasks
+      report.push("<h4 class='mt-4'>Maintenance Tasks</h4>");
+      if (ecoData.maintenance.length) {
+        const completed = ecoData.maintenance.filter(t => t.done).length;
+        const pending = ecoData.maintenance.length - completed;
+        
+        report.push(`
+          <div class="mb-3">
+            <div class="progress" style="height: 20px;">
+              <div class="progress-bar bg-success" role="progressbar" 
+                style="width: ${(completed / ecoData.maintenance.length) * 100}%" 
+                aria-valuenow="${completed}" aria-valuemin="0" aria-valuemax="${ecoData.maintenance.length}">
+                ${completed} completed
+              </div>
+              <div class="progress-bar bg-warning" role="progressbar" 
+                style="width: ${(pending / ecoData.maintenance.length) * 100}%" 
+                aria-valuenow="${pending}" aria-valuemin="0" aria-valuemax="${ecoData.maintenance.length}">
+                ${pending} pending
+              </div>
+            </div>
+          </div>
+        `);
+        
+        report.push("<div class='table-responsive'><table class='table table-sm'><thead><tr><th>Task</th><th>Category</th><th>Due</th><th>Status</th></tr></thead><tbody>");
+        ecoData.maintenance.forEach(t => {
+          report.push(`
+            <tr class="${t.done ? 'table-secondary' : ''}">
+              <td class="${t.done ? 'task-completed' : ''}">${t.name}</td>
+              <td>${t.category}</td>
+              <td>${t.due}</td>
+              <td><span class="badge ${t.done ? 'bg-success' : 'bg-warning'}">${t.done ? "Completed" : "Pending"}</span></td>
+            </tr>
+          `);
+        });
+        report.push("</tbody></table></div>");
+      } else {
+        report.push("<div class='alert alert-info'>No maintenance tasks added.</div>");
+      }
+      
+      // Species
+      report.push("<h4 class='mt-4'>Species Register</h4>");
+      if (ecoData.species.length) {
+        const speciesByType = {};
+        ecoData.species.forEach(s => {
+          speciesByType[s.type] = (speciesByType[s.type] || 0) + 1;
+        });
+        
+        report.push("<div class='table-responsive'><table class='table table-sm'><thead><tr><th>Name</th><th>Type</th><th>Notes</th></tr></thead><tbody>");
+        ecoData.species.forEach(s => {
+          report.push(`
+            <tr>
+              <td>${s.name}</td>
+              <td><span class="badge species-badge ${getSpeciesBadgeClass(s.type)}">${s.type}</span></td>
+              <td>${s.notes || '-'}</td>
+            </tr>
+          `);
+        });
+        report.push("</tbody></table></div>");
+      } else {
+        report.push("<div class='alert alert-info'>No species recorded.</div>");
+      }
+      
+      // Monitoring
+      report.push("<h4 class='mt-4'>Monitoring Logs</h4>");
+      if (ecoData.monitoring.length) {
+        report.push("<div class='table-responsive'><table class='table table-sm'><thead><tr><th>Date</th><th>Observer</th><th>Location</th><th>Weather</th><th>Notes</th></tr></thead><tbody>");
+        ecoData.monitoring.forEach(m => {
+          report.push(`
+            <tr>
+              <td>${m.date}</td>
+              <td>${m.observer}</td>
+              <td>${m.area || '-'}</td>
+              <td>${m.weather || '-'}</td>
+              <td>${m.notes || '-'}</td>
+            </tr>
+          `);
+        });
+        report.push("</tbody></table></div>");
+      } else {
+        report.push("<div class='alert alert-info'>No monitoring records yet.</div>");
+      }
+      
+      document.getElementById("reportContent").innerHTML = report.join("");
+      renderCharts();
+    }
+
+    // Render charts for reports
+    function renderCharts() {
+      // Destroy existing charts if they exist
+      const chartIds = ['maintenanceChart', 'speciesChart', 'monitoringChart'];
+      chartIds.forEach(id => {
+        const chart = Chart.getChart(id);
+        if (chart) chart.destroy();
+      });
+
+      // 1. Enhanced Maintenance Tasks Chart (Doughnut with counts)
+      const done = ecoData.maintenance.filter(t => t.done).length;
+      const pending = ecoData.maintenance.length - done;
+      new Chart(document.getElementById("maintenanceChart"), {
+        type: "doughnut",
+        data: {
+          labels: ["Completed", "Pending"],
+          datasets: [{
+            data: [done, pending],
+            backgroundColor: ["#28a745", "#ffc107"],
+            borderWidth: 1
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            title: { 
+              display: true, 
+              text: "Maintenance Task Status", 
+              font: { size: 14 },
+              padding: { bottom: 10 }
+            },
+            legend: { 
+              position: 'right',
+              labels: {
+                boxWidth: 12,
+                padding: 20
+              }
+            },
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  const label = context.label || '';
+                  const value = context.raw || 0;
+                  const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                  const percentage = Math.round((value / total) * 100);
+                  return `${label}: ${value} (${percentage}%)`;
+                }
+              }
+            }
+          },
+          cutout: '65%'
+        }
+      });
+
+      // 2. Enhanced Species Types Chart (Horizontal Bar)
+      const speciesTypes = {};
+      ecoData.species.forEach(s => {
+        speciesTypes[s.type] = (speciesTypes[s.type] || 0) + 1;
+      });
+      
+      // Sort by count descending
+      const sortedSpecies = Object.entries(speciesTypes)
+        .sort((a, b) => b[1] - a[1]);
+      
+      const speciesColors = {
+        'Native': '#28a745',
+        'Weed': '#dc3545',
+        'Introduced': '#fd7e14',
+        'Unknown': '#6c757d'
+      };
+      
+      new Chart(document.getElementById("speciesChart"), {
+        type: "bar",
+        data: {
+          labels: sortedSpecies.map(s => s[0]),
+          datasets: [{
+            label: "Species Count",
+            data: sortedSpecies.map(s => s[1]),
+            backgroundColor: sortedSpecies.map(s => speciesColors[s[0]] || '#007bff'),
+            borderWidth: 1
+          }]
+        },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            title: { 
+              display: true, 
+              text: "Species by Type", 
+              font: { size: 14 },
+              padding: { bottom: 10 }
+            },
+            legend: { display: false }
+          },
+          scales: {
+            x: {
+              beginAtZero: true,
+              ticks: {
+                precision: 0
+              }
+            }
+          }
+        }
+      });
+
+      // 3. Enhanced Monitoring Over Time (Line with points)
+      const dateCounts = {};
+      ecoData.monitoring.forEach(m => {
+        dateCounts[m.date] = (dateCounts[m.date] || 0) + 1;
+      });
+      const sortedDates = Object.keys(dateCounts).sort();
+      
+      new Chart(document.getElementById("monitoringChart"), {
+        type: "line",
+        data: {
+          labels: sortedDates,
+          datasets: [{
+            label: "Monitoring Entries",
+            data: sortedDates.map(d => dateCounts[d]),
+            fill: true,
+            borderColor: "#6610f2",
+            backgroundColor: "rgba(102, 16, 242, 0.2)",
+            tension: 0.3,
+            pointBackgroundColor: "#6610f2",
+            pointRadius: 5,
+            pointHoverRadius: 7
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            title: { 
+              display: true, 
+              text: "Monitoring Activity Over Time", 
+              font: { size: 14 },
+              padding: { bottom: 10 }
+            },
+            legend: { display: false }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              ticks: {
+                precision: 0
+              }
+            }
+          }
+        }
+      });
+    }
+
+    // Export data to CSV
+    function exportToCSV() {
+      let csvContent = "data:text/csv;charset=utf-8,";
+      
+      // Export assessments
+      csvContent += "Assessments\n";
+      csvContent += "Date,Assessor,Health,Threats,Description\n";
+      ecoData.assessments.forEach(a => {
+        csvContent += `${a.date},${a.assessor},${a.health},"${a.threats.join(', ')}","${a.description.replace(/"/g, '""')}"\n`;
+      });
+      
+      // Export maintenance tasks
+      csvContent += "\nMaintenance Tasks\n";
+      csvContent += "Task,Category,Due Date,Status,Notes\n";
+      ecoData.maintenance.forEach(t => {
+        csvContent += `${t.name},${t.category},${t.due},${t.done ? 'Completed' : 'Pending'},"${(t.notes || '').replace(/"/g, '""')}"\n`;
+      });
+      
+      // Export species
+      csvContent += "\nSpecies\n";
+      csvContent += "Name,Type,Notes\n";
+      ecoData.species.forEach(s => {
+        csvContent += `${s.name},${s.type},"${(s.notes || '').replace(/"/g, '""')}"\n`;
+      });
+      
+      // Export monitoring
+      csvContent += "\nMonitoring\n";
+      csvContent += "Date,Observer,Location,Weather,Notes\n";
+      ecoData.monitoring.forEach(m => {
+        csvContent += `${m.date},${m.observer},${m.area || ''},${m.weather || ''},"${(m.notes || '').replace(/"/g, '""')}"\n`;
+      });
+      
+      // Create download link
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", `ecosystem_report_${new Date().toISOString().split('T')[0]}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+
+    // Export all data as JSON
+    function exportAllData() {
+      const dataStr = JSON.stringify(ecoData, null, 2);
+      const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+      
+      const exportName = `ecosystem_data_${new Date().toISOString().split('T')[0]}.json`;
+      
+      const linkElement = document.createElement('a');
+      linkElement.setAttribute('href', dataUri);
+      linkElement.setAttribute('download', exportName);
+      linkElement.click();
+    }
+
+    // Initialize the application
+    document.addEventListener("DOMContentLoaded", function () {
+      loadData();
+      initDashboardMap();
+      updateDashboardCounts();
+      
+      // Assessment form
+      document.getElementById("assessmentForm").addEventListener("submit", function (e) {
+        e.preventDefault();
+        if (!validateForm(this)) return;
+        
+        const date = document.getElementById("assessmentDate").value;
+        const assessor = document.getElementById("assessorName").value;
+        const description = document.getElementById("siteDescription").value;
+        const health = document.getElementById("ecosystemHealth").value;
+        const threats = Array.from(document.getElementById("threats").selectedOptions).map(o => o.value);
+        const recommendations = document.getElementById("recommendations").value;
+        
+        const newAssessment = { 
+          date, 
+          assessor, 
+          description, 
+          health, 
+          threats,
+          recommendations: recommendations || undefined 
+        };
+        
+        ecoData.assessments.push(newAssessment);
+        saveData();
+        renderAssessments();
+        this.reset();
+      });
+      
+      // Maintenance form
+      document.getElementById("maintenanceForm").addEventListener("submit", function (e) {
+        e.preventDefault();
+        if (!validateForm(this)) return;
+        
+        const task = {
+          name: document.getElementById("taskName").value,
+          category: document.getElementById("taskCategory").value,
+          due: document.getElementById("taskDueDate").value,
+          notes: document.getElementById("taskNotes").value || undefined,
+          done: false
+        };
+        
+        ecoData.maintenance.push(task);
+        saveData();
+        renderMaintenanceTasks();
+        this.reset();
+      });
+      
+      // Species form
+      document.getElementById("speciesForm").addEventListener("submit", function (e) {
+        e.preventDefault();
+        if (!validateForm(this)) return;
+        
+        const species = {
+          name: document.getElementById("speciesName").value,
+          type: document.getElementById("speciesType").value,
+          notes: document.getElementById("speciesNotes").value || undefined
+        };
+        
+        ecoData.species.push(species);
+        saveData();
+        renderSpeciesList();
+        this.reset();
+      });
+      
+      // Monitoring form
+      document.getElementById("monitoringForm").addEventListener("submit", function (e) {
+        e.preventDefault();
+        if (!validateForm(this)) return;
+        
+        const newEntry = {
+          date: document.getElementById("monitoringDate").value,
+          observer: document.getElementById("monitoringObserver").value,
+          area: document.getElementById("monitoringArea").value,
+          weather: document.getElementById("monitoringWeather").value || undefined,
+          notes: document.getElementById("monitoringNotes").value
+        };
+        
+        ecoData.monitoring.push(newEntry);
+        saveData();
+        renderMonitoringEntries();
+        this.reset();
+      });
+      
+      // Site settings form
+      document.getElementById("siteSettingsForm").addEventListener("submit", function(e) {
+        e.preventDefault();
+        ecoData.settings.site = {
+          name: document.getElementById("siteName").value || undefined,
+          location: document.getElementById("siteLocation").value || undefined,
+          description: document.getElementById("siteDescription").value || undefined
+        };
+        saveData();
+        alert("Site information saved successfully!");
+      });
+      
+      // User settings form
+      document.getElementById("userSettingsForm").addEventListener("submit", function(e) {
+        e.preventDefault();
+        ecoData.settings.user = {
+          name: document.getElementById("userName").value,
+          role: document.getElementById("userRole").value || undefined
+        };
+        saveData();
+        alert("User preferences saved successfully!");
+      });
+      
+      // Load saved settings
+      if (ecoData.settings.site) {
+        document.getElementById("siteName").value = ecoData.settings.site.name || '';
+        document.getElementById("siteLocation").value = ecoData.settings.site.location || '';
+        document.getElementById("siteDescription").value = ecoData.settings.site.description || '';
+      }
+      
+      if (ecoData.settings.user) {
+        document.getElementById("userName").value = ecoData.settings.user.name || '';
+        document.getElementById("userRole").value = ecoData.settings.user.role || '';
+      }
+      
+      // Initialize all data tables
+      renderAssessments();
+      renderMaintenanceTasks();
+      renderSpeciesList();
+      renderMonitoringEntries();
+    });
+  </script>
+</body>
+</html>
