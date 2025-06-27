@@ -372,7 +372,7 @@
                     </div>
                     <div class="col-md-6 mb-3">
                       <label for="assessorName" class="form-label">Assessor</label>
-                      <input type="text" class="form-control" id="assessorName" required minlength="2" 
+                      <input type="text" class="form-control" id="assessorName" required minlength="2"> 
                       <div class="invalid-feedback">Please provide the assessor's name (at least 2 characters).</div>
                     </div>
                   </div>
@@ -920,6 +920,12 @@
 
     // Load data from localStorage
     function loadData() {
+      // Set default observer name if available
+      const observerField = document.getElementById('monitoringObserver');
+      if (observerField && ecoData.settings.user.name) {
+        observerField.value = ecoData.settings.user.name;
+      }
+
       const saved = localStorage.getItem("ecoMaintainData");
       if (saved) {
         try { 
@@ -2840,6 +2846,12 @@ if (ecoData.monitoring.length) {
 
   // Load data from localStorage
   function loadData() {
+      // Set default observer name if available
+      const observerField = document.getElementById('monitoringObserver');
+      if (observerField && ecoData.settings.user.name) {
+        observerField.value = ecoData.settings.user.name;
+      }
+
     const saved = localStorage.getItem("ecoMaintainData");
     if (saved) {
       try { 
